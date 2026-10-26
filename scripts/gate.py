@@ -4,6 +4,7 @@
   python scripts/gate.py tune dev           choose theta (edge-support cut-off) for the OpenCV control on dev only
   python scripts/gate.py cv dev|gate        OpenCV control with the frozen theta: localise every frame, write 10 fps output
   python scripts/gate.py sam dev|gate       decode the saved open-weights SAM output and localise with the same quad rule
+  python scripts/gate.py api dev|gate       the same from the raw Model API text (a consistency check once the gate is decided)
   python scripts/gate.py score dev          dev numbers and the threshold (diagnostic only)
   python scripts/gate.py score gate         the verdict; run once, after both arms exist
 
@@ -119,6 +120,12 @@ def tune(split):
 SAM_RAW = RUN / "sam_open"
 
 
+def api_quads(txt, n_frames):
+    """Per-frame quad candidates from the raw API text for one prompt; same quad rule, nothing filtered."""
+    by_frame = sam.api_masks(Path(txt).read_text(), quad.H, quad.W)
+    return [[q for q in (quad.quad_from_mask(m) for m in by_frame.get(i, [])) if q is not None] for i in range(n_frames)]
+
+
 def sam_quads(npz, n_frames):
     """Per-frame quad candidates from one prompt's saved output; same quad rule as the control, nothing filtered."""
     z = np.load(npz, allow_pickle=False)
@@ -129,19 +136,21 @@ def sam_quads(npz, n_frames):
     return out
 
 
-def run_sam(split):
-    """INCOMPLETE (stop) unless every clip has both prompts saved and no error file exists."""
-    src = SAM_RAW / split
+def run_sam(split, route="open"):
+    """route open: saved open-weights npz files; route api: raw Model API text. Refuses an incomplete set."""
+    src, ext, arm, reader = ((SAM_RAW / split, "npz", "sam", sam_quads) if route == "open"
+                             else (RUN / "sam_raw" / split, "txt", "sam_api", api_quads))
     clips = sorted((RUN / "in" / split).glob("*.mp4"))
-    missing = [p.stem for p in clips for q in sam.PROMPTS if not (src / f"{p.stem}__{q.replace(' ', '_')}.npz").exists()]
+    key = lambda p, q: src / f"{p.stem}__{q.replace(' ', '_')}.{ext}"
+    missing = [key(p, q).name for p in clips for q in sam.PROMPTS if not key(p, q).exists()]
     if missing or list(src.glob("*__ERROR.txt")):
         sys.exit(f"INCOMPLETE: {len(missing)} outputs missing, {len(list(src.glob('*__ERROR.txt')))} error files")
-    out = RUN / "out" / split / "sam"
+    out = RUN / "out" / split / arm
     out.mkdir(parents=True, exist_ok=True)
     log = {}
     for p in clips:
         frames = read_frames(p)
-        per_prompt = [sam_quads(src / f"{p.stem}__{q.replace(' ', '_')}.npz", len(frames)) for q in sam.PROMPTS]
+        per_prompt = [reader(key(p, q), len(frames)) for q in sam.PROMPTS]
         prev, warped, fb = None, [], 0
         for i, f in enumerate(frames):
             cands = [q for pp in per_prompt for q in pp[i]]
@@ -153,7 +162,7 @@ def run_sam(split):
         variants.write(warped, out / p.name, repeat=2)
         log[p.stem] = fb
         print(p.stem, "full-frame fallbacks:", fb, flush=True)
-    (RUN / "out" / split / "sam_fallbacks.json").write_text(json.dumps(log, indent=1))
+    (RUN / "out" / split / f"{arm}_fallbacks.json").write_text(json.dumps(log, indent=1))
 
 
 def pairs(split, arm):
@@ -177,7 +186,7 @@ def targets(rows, thr, variant):
     return [(r["fa"], r["pdq"] > thr) for r in pos]
 
 
-def score(split, arms=("cv", "sam")):
+def score(split, arms=("cv", "sam", "sam_api")):
     results = {}
     for arm in arms:
         if not (RUN / "out" / split / arm).exists():
@@ -206,4 +215,4 @@ def score(split, arms=("cv", "sam")):
 
 if __name__ == "__main__":
     cmd, split = sys.argv[1], sys.argv[2]
-    {"prepare": prepare, "tune": tune, "cv": run_cv, "sam": run_sam, "score": score}[cmd](split)
+    {"prepare": prepare, "tune": tune, "cv": run_cv, "sam": run_sam, "api": lambda sp: run_sam(sp, "api"), "score": score}[cmd](split)

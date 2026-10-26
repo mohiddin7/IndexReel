@@ -2,7 +2,11 @@
 import asyncio
 import os
 import random
+import re
 from pathlib import Path
+
+import numpy as np
+from meta_sam_parser import SegmentationMask, decode_mask_to_raster
 
 from openai import APIStatusError, AsyncOpenAI
 
@@ -65,3 +69,25 @@ async def run_dir(clips, out_dir, parallel=8):
 
 def estimate_dollars(n_clips, frames_per_clip=50):
     return n_clips * len(PROMPTS) * max(frames_per_clip, MIN_BILLED_FRAMES) * DOLLARS_PER_FRAME
+
+
+_RECORD = re.compile(r"<\|box;x1=(\d+);y1=(\d+);x2=(\d+);y2=(\d+);w=(\d+);h=(\d+)[^|]*\|>"
+                     r"<\|mask;x=0;y=0;(?:c=[\d.]+;)?data=(\d+),(\d+),(.*?)\|>(?=,|$)")
+
+
+def api_masks(text, height, width):
+    """Raw API output -> {frame index: [boolean masks at frame size]}. A mask raster is a crop of its box."""
+    frames = {}
+    for line in text.splitlines():
+        head = re.match(r"<(\d+)f>", line)
+        if not head:
+            continue
+        masks = []
+        for x1, y1, x2, y2, _, _, mh, mw, payload in _RECORD.findall(line):
+            raster = np.frombuffer(decode_mask_to_raster(
+                SegmentationMask(encoding="one_bit", payload=payload, width=int(mw), height=int(mh))), np.uint8)
+            full = np.zeros((height, width), bool)
+            full[int(y1):int(y1) + int(mh), int(x1):int(x1) + int(mw)] = raster.reshape(int(mh), int(mw)) > 0
+            masks.append(full)
+        frames[int(head.group(1))] = masks
+    return frames
