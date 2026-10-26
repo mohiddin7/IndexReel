@@ -13,6 +13,7 @@ The weights cache volume is created in the new workspace on first use and downlo
 
 Run:
   .venv/bin/modal run scripts/modal_sam.py --split dev --dry   # list clips and stop
+  .venv/bin/modal run scripts/modal_sam.py --split dev --limit 1    # one-clip smoke test first
   .venv/bin/modal run scripts/modal_sam.py --split dev
 
 Raw per-frame outputs are saved untouched to data/gate_run/sam_open/<split>/<clip>__<prompt>.npz and decoded later.
@@ -55,7 +56,7 @@ def _arrays(obj, prefix, out):
             out[prefix] = np.asarray(str(obj))
 
 
-@app.function(image=image, gpu="L4", timeout=1800,  # an L4 is under $1 an hour, so one call costs at most about $0.40
+@app.function(image=image, gpu=["L4", "A10G", "L40S"], timeout=1800,  # first free of these; all are about $1 an hour or less, so one call costs at most about $0.50
                secrets=[modal.Secret.from_name("hf-token")],
               volumes={"/root/.cache/huggingface": weights})
 def segment(clips: dict[str, bytes]) -> dict[str, bytes]:
@@ -65,34 +66,48 @@ def segment(clips: dict[str, bytes]) -> dict[str, bytes]:
     ckpt = download_ckpt_from_hf(version="sam3.1")
     weights.commit()
     predictor = build_sam3_multiplex_video_predictor(checkpoint_path=ckpt, use_fa3=False)
+
+    # sam3 revision f1647e8: the base predictor's start_session always passes offload_state_to_cpu, which the
+    # multiplex model's init_state does not accept. False is its default, so dropping it changes nothing.
+    init_state = predictor.model.init_state
+    predictor.model.init_state = lambda **kw: init_state(**{k: v for k, v in kw.items() if k != "offload_state_to_cpu"})
+    import traceback
     results = {}
     for name, data in clips.items():
-        path = f"/tmp/{name}.mp4"
-        Path(path).write_bytes(data)
-        session = predictor.handle_request(request=dict(type="start_session", resource_path=path))["session_id"]
-        for phrase in PROMPTS:
-            predictor.handle_request(request=dict(type="reset_session", session_id=session))
-            predictor.handle_request(request=dict(type="add_prompt", session_id=session, frame_index=0, text=phrase))
-            arrays = {}
-            for resp in predictor.handle_stream_request(request=dict(type="propagate_in_video", session_id=session)):
-                _arrays(resp["outputs"], f"f{resp['frame_index']:03d}", arrays)
-            buf = io.BytesIO()
-            np.savez_compressed(buf, **arrays)
-            results[f"{name}__{phrase.replace(' ', '_')}"] = buf.getvalue()
-            print(name, repr(phrase), len(arrays), "arrays", flush=True)
-        predictor.handle_request(request=dict(type="close_session", session_id=session))
+        try:
+            path = f"/tmp/{name}.mp4"
+            Path(path).write_bytes(data)
+            session = predictor.handle_request(request=dict(type="start_session", resource_path=path))["session_id"]
+            for phrase in PROMPTS:
+                predictor.handle_request(request=dict(type="reset_session", session_id=session))
+                predictor.handle_request(request=dict(type="add_prompt", session_id=session, frame_index=0, text=phrase))
+                arrays = {}
+                for resp in predictor.handle_stream_request(request=dict(type="propagate_in_video", session_id=session)):
+                    _arrays(resp["outputs"], f"f{resp['frame_index']:03d}", arrays)
+                buf = io.BytesIO()
+                np.savez_compressed(buf, **arrays)
+                results[f"{name}__{phrase.replace(' ', '_')}.npz"] = buf.getvalue()
+                print(name, repr(phrase), len(arrays), "arrays", flush=True)
+            predictor.handle_request(request=dict(type="close_session", session_id=session))
+        except Exception:  # keep the other clips; the failure is saved and the run counts as INCOMPLETE
+            results[f"{name}__ERROR.txt"] = traceback.format_exc().encode()
+            print(name, "FAILED", flush=True)
     return results
 
 
 @app.local_entrypoint()
-def main(split: str = "dev", dry: bool = False):
+def main(split: str = "dev", dry: bool = False, limit: int = 0):
     out = RUN / "sam_open" / split
-    clips = {p.stem: p.read_bytes() for p in sorted((RUN / "in" / split).glob("*.mp4"))
-             if not all((out / f"{p.stem}__{q.replace(' ', '_')}.npz").exists() for q in PROMPTS)}
+    todo = [p for p in sorted((RUN / "in" / split).glob("*.mp4"))
+            if not all((out / f"{p.stem}__{q.replace(' ', '_')}.npz").exists() for q in PROMPTS)]
+    if limit:
+        todo = todo[:limit]
+    clips = {p.stem: p.read_bytes() for p in todo}
     print(f"{split}: {len(clips)} clips to run, {len(PROMPTS)} prompts each")
     if dry or not clips:
         return
     out.mkdir(parents=True, exist_ok=True)
-    for key, blob in segment.remote(clips).items():
-        (out / f"{key}.npz").write_bytes(blob)
-    print("saved to", out)
+    for name, blob in segment.remote(clips).items():
+        (out / name).write_bytes(blob)
+    errors = sorted(out.glob("*__ERROR.txt"))
+    print("saved to", out, "| clips that failed:", len(errors), "(INCOMPLETE)" if errors else "")
