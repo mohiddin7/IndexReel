@@ -74,3 +74,11 @@ For each arm: false merges, the four paired outcomes per transform, k/4 with Wil
 The first dev run of the OpenCV control scored 0 of 4 on both transforms with zero full-frame fallbacks. The cause is in my rules: the fixed inset rectangle is a candidate, but nothing says when a candidate is good enough to accept, so the control cropped that patch out of every clip, including the plain originals, and broke their matches. SAM returns nothing when a concept is absent, so this made the control unfairly weak.
 
 Change: an OpenCV candidate counts only if its edge support is at least theta. Edge support is the share of the quad's boundary pixels that lie within 2 px of a Canny edge. I set theta on dev only, from {0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9}: the largest theta that gives the highest dev total (PiP hits plus re-film hits). Then I freeze it for the gate split. Nothing else changes. SAM output is accepted as returned, with the same quad rule and no confidence cut-off. I keep the theta = 0 result in the report as a diagnostic.
+
+## Amendment 2 (Oct 26, before any SAM run)
+
+The SAM arm can run two ways: the Meta Model API (`sam-3.1`) or the open SAM 3.1 weights (`facebook/sam3.1`, multiplex checkpoint) on a rented GPU. Both are the same model family but are separate deployments, and credits for the API may arrive late.
+
+Rule: for each split, the first complete SAM run decides the verdict, whichever way it ran. A later run the other way is reported next to it as a consistency check and never replaces it. I state which way each result came from. Prompts, quad rule, theta and the pass rule stay as written. No best-of, no reruns after a result.
+
+The open-weights run uses the same two prompts, one pass each, frame 0 as the prompt frame, the default 0.5 mask threshold, and `use_fa3=False` because FlashAttention 3 is not installed on the rented GPU. The code revision of the `sam3` repo is pinned in `scripts/modal_sam.py`.
