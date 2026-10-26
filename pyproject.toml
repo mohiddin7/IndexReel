@@ -1,0 +1,18 @@
+[project]
+name = "indexreel"
+version = "0.0.1"
+requires-python = ">=3.12"
+dependencies = [
+  "torch==2.2.2",
+  "numpy<2",
+  "opencv-python-headless",
+  "imagehash",
+  "pdqhash",
+  "pillow",
+  "scipy",
+  "openai",
+  "meta-sam-parser",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
