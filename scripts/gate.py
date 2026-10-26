@@ -3,6 +3,7 @@
   python scripts/gate.py prepare dev|gate   make the three versions of every family at 640x360, 5 fps
   python scripts/gate.py tune dev           choose theta (edge-support cut-off) for the OpenCV control on dev only
   python scripts/gate.py cv dev|gate        OpenCV control with the frozen theta: localise every frame, write 10 fps output
+  python scripts/gate.py sam dev|gate       decode the saved open-weights SAM output and localise with the same quad rule
   python scripts/gate.py score dev          dev numbers and the threshold (diagnostic only)
   python scripts/gate.py score gate         the verdict; run once, after both arms exist
 
@@ -17,7 +18,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from indexreel import match, quad, variants
+from indexreel import match, quad, sam, variants
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -115,6 +116,46 @@ def tune(split):
     print("chosen theta:", best[0])
 
 
+SAM_RAW = RUN / "sam_open"
+
+
+def sam_quads(npz, n_frames):
+    """Per-frame quad candidates from one prompt's saved output; same quad rule as the control, nothing filtered."""
+    z = np.load(npz, allow_pickle=False)
+    out = []
+    for i in range(n_frames):
+        masks = z[f"f{i:03d}/out_binary_masks"] if f"f{i:03d}/out_binary_masks" in z.files else []
+        out.append([q for q in (quad.quad_from_mask(m) for m in masks) if q is not None])
+    return out
+
+
+def run_sam(split):
+    """INCOMPLETE (stop) unless every clip has both prompts saved and no error file exists."""
+    src = SAM_RAW / split
+    clips = sorted((RUN / "in" / split).glob("*.mp4"))
+    missing = [p.stem for p in clips for q in sam.PROMPTS if not (src / f"{p.stem}__{q.replace(' ', '_')}.npz").exists()]
+    if missing or list(src.glob("*__ERROR.txt")):
+        sys.exit(f"INCOMPLETE: {len(missing)} outputs missing, {len(list(src.glob('*__ERROR.txt')))} error files")
+    out = RUN / "out" / split / "sam"
+    out.mkdir(parents=True, exist_ok=True)
+    log = {}
+    for p in clips:
+        frames = read_frames(p)
+        per_prompt = [sam_quads(src / f"{p.stem}__{q.replace(' ', '_')}.npz", len(frames)) for q in sam.PROMPTS]
+        prev, warped, fb = None, [], 0
+        for i, f in enumerate(frames):
+            cands = [q for pp in per_prompt for q in pp[i]]
+            g = gray(f)
+            q = quad.pick(cands, g, prev)  # no edge-support cut-off for SAM: its masks are accepted as returned
+            fb += q is None
+            warped.append(quad.warp(f, q))
+            prev = g
+        variants.write(warped, out / p.name, repeat=2)
+        log[p.stem] = fb
+        print(p.stem, "full-frame fallbacks:", fb, flush=True)
+    (RUN / "out" / split / "sam_fallbacks.json").write_text(json.dumps(log, indent=1))
+
+
 def pairs(split, arm):
     paths = sorted((RUN / "out" / split / arm).glob("*.mp4"))
     feats = {p.stem: match.sampled_hashes(p) for p in paths}
@@ -165,4 +206,4 @@ def score(split, arms=("cv", "sam")):
 
 if __name__ == "__main__":
     cmd, split = sys.argv[1], sys.argv[2]
-    {"prepare": prepare, "tune": tune, "cv": run_cv, "score": score}[cmd](split)
+    {"prepare": prepare, "tune": tune, "cv": run_cv, "sam": run_sam, "score": score}[cmd](split)
