@@ -56,48 +56,76 @@ def _arrays(obj, prefix, out):
             out[prefix] = np.asarray(str(obj))
 
 
-@app.function(image=image, gpu=["L4", "A10G", "L40S"], timeout=1800,  # first free of these; all are about $1 an hour or less, so one call costs at most about $0.50
-               secrets=[modal.Secret.from_name("hf-token")],
+# L4 (24 GB) ran out of memory on clips with tracked objects. L40S has 48 GB and costs about $2 an hour, so the
+# 60-minute timeout caps one call at about $2. A100-40GB is the fallback.
+@app.function(image=image, gpu=["L40S", "A100-40GB"], timeout=3600,
+              secrets=[modal.Secret.from_name("hf-token")],
               volumes={"/root/.cache/huggingface": weights})
-def segment(clips: dict[str, bytes]) -> dict[str, bytes]:
+def segment(clips: dict[str, bytes]):
+    """Yields (file name, bytes) after each clip, so a late failure never loses finished clips."""
+    import json
+    import time
+    import traceback
+
     import numpy as np
+    import torch
     from sam3.model_builder import build_sam3_multiplex_video_predictor, download_ckpt_from_hf
 
     ckpt = download_ckpt_from_hf(version="sam3.1")
     weights.commit()
+    t0 = time.time()
     predictor = build_sam3_multiplex_video_predictor(checkpoint_path=ckpt, use_fa3=False)
+    load_s = time.time() - t0
+    gpu = torch.cuda.get_device_name(0)
 
     # sam3 revision f1647e8: the base predictor's start_session always passes offload_state_to_cpu, which the
     # multiplex model's init_state does not accept. False is its default, so dropping it changes nothing.
     init_state = predictor.model.init_state
     predictor.model.init_state = lambda **kw: init_state(**{k: v for k, v in kw.items() if k != "offload_state_to_cpu"})
-    import traceback
-    results = {}
+
     for name, data in clips.items():
+        session, stats = None, {"gpu": gpu, "model_load_s": round(load_s, 1), "prompts": {}}
         try:
             path = f"/tmp/{name}.mp4"
             Path(path).write_bytes(data)
-            session = predictor.handle_request(request=dict(type="start_session", resource_path=path))["session_id"]
+            # frames stay in CPU memory and cached per-frame outputs are evicted as they stream; neither changes masks
+            session = predictor.handle_request(request=dict(type="start_session", resource_path=path,
+                                                            offload_video_to_cpu=True))["session_id"]
+            files = {}
             for phrase in PROMPTS:
+                torch.cuda.reset_peak_memory_stats()
+                t = time.time()
                 predictor.handle_request(request=dict(type="reset_session", session_id=session))
                 predictor.handle_request(request=dict(type="add_prompt", session_id=session, frame_index=0, text=phrase))
                 arrays = {}
-                for resp in predictor.handle_stream_request(request=dict(type="propagate_in_video", session_id=session)):
+                for resp in predictor.handle_stream_request(request=dict(type="propagate_in_video", session_id=session,
+                                                                         evict_cached_frame_outputs=True)):
                     _arrays(resp["outputs"], f"f{resp['frame_index']:03d}", arrays)
                 buf = io.BytesIO()
                 np.savez_compressed(buf, **arrays)
-                results[f"{name}__{phrase.replace(' ', '_')}.npz"] = buf.getvalue()
-                print(name, repr(phrase), len(arrays), "arrays", flush=True)
-            predictor.handle_request(request=dict(type="close_session", session_id=session))
+                files[f"{name}__{phrase.replace(' ', '_')}.npz"] = buf.getvalue()
+                stats["prompts"][phrase] = {"seconds": round(time.time() - t, 2), "frames": len(arrays) // 6,
+                                            "peak_gpu_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2)}
+                print(name, repr(phrase), stats["prompts"][phrase], flush=True)
+            files[f"{name}__stats.json"] = json.dumps(stats).encode()
+            yield from files.items()
         except Exception:  # keep the other clips; the failure is saved and the run counts as INCOMPLETE
-            results[f"{name}__ERROR.txt"] = traceback.format_exc().encode()
             print(name, "FAILED", flush=True)
-    return results
+            yield f"{name}__ERROR.txt", traceback.format_exc().encode()
+        finally:  # always free the session, or one failure starves every later clip
+            if session:
+                try:
+                    predictor.handle_request(request=dict(type="close_session", session_id=session))
+                except Exception:
+                    pass
+            torch.cuda.empty_cache()
 
 
 @app.local_entrypoint()
 def main(split: str = "dev", dry: bool = False, limit: int = 0):
     out = RUN / "sam_open" / split
+    for stale in out.glob("*__ERROR.txt"):  # errors from an earlier attempt; the clip is retried below
+        stale.unlink()
     todo = [p for p in sorted((RUN / "in" / split).glob("*.mp4"))
             if not all((out / f"{p.stem}__{q.replace(' ', '_')}.npz").exists() for q in PROMPTS)]
     if limit:
@@ -107,7 +135,8 @@ def main(split: str = "dev", dry: bool = False, limit: int = 0):
     if dry or not clips:
         return
     out.mkdir(parents=True, exist_ok=True)
-    for name, blob in segment.remote(clips).items():
+    for name, blob in segment.remote_gen(clips):
         (out / name).write_bytes(blob)
+        print("saved", name, flush=True)
     errors = sorted(out.glob("*__ERROR.txt"))
     print("saved to", out, "| clips that failed:", len(errors), "(INCOMPLETE)" if errors else "")

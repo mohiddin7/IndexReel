@@ -82,3 +82,7 @@ The SAM arm can run two ways: the Meta Model API (`sam-3.1`) or the open SAM 3.1
 Rule: for each split, the first complete SAM run decides the verdict, whichever way it ran. A later run the other way is reported next to it as a consistency check and never replaces it. I state which way each result came from. Prompts, quad rule, theta and the pass rule stay as written. No best-of, no reruns after a result.
 
 The open-weights run uses the same two prompts, one pass each, frame 0 as the prompt frame, the default 0.5 mask threshold, and `use_fa3=False` because FlashAttention 3 is not installed on the rented GPU. The code revision of the `sam3` repo is pinned in `scripts/modal_sam.py`.
+
+## Amendment 3 (Oct 26, no gate-split output exists yet)
+
+My first full dev run of the open weights failed with GPU out-of-memory on every clip that had a tracked object, on a 24 GB card. I keep frames in CPU memory, evict cached per-frame outputs as they stream, and use a 48 GB GPU. These are memory settings; they do not change prompts, thresholds, the quad rule or the pass rule. No output from the failed run is used. I also record time, GPU and peak memory per clip, so cost and latency are reported next to accuracy.
