@@ -47,7 +47,8 @@ def _arrays(obj, prefix, out):
             out[prefix] = np.asarray(str(obj))
 
 
-@app.function(image=image, gpu="L4", timeout=3600, secrets=[modal.Secret.from_name("hf-token")],
+@app.function(image=image, gpu="L4", timeout=1800,  # an L4 is under $1 an hour, so one call costs at most about $0.40
+               secrets=[modal.Secret.from_name("hf-token")],
               volumes={"/root/.cache/huggingface": weights})
 def segment(clips: dict[str, bytes]) -> dict[str, bytes]:
     import numpy as np
