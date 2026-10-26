@@ -1,0 +1,4 @@
+# Ignore everything, then allow a short list. To track a new path, add a "!" line below.
+/*
+!/.gitignore
+!/README.md
