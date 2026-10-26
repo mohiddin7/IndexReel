@@ -5,6 +5,12 @@ One-time setup (in my own terminal, never in a file here):
   .venv/bin/modal setup
   .venv/bin/modal secret create hf-token HF_TOKEN=<my read token>
 
+Switching workspace when one runs out of credit (no code change; nothing in this file names a workspace):
+  .venv/bin/modal profile list
+  .venv/bin/modal profile activate <other profile>        # or: MODAL_PROFILE=<other> .venv/bin/modal run ...
+  .venv/bin/modal secret create hf-token HF_TOKEN=<token>  # secrets are per workspace, so create it once in each
+The weights cache volume is created in the new workspace on first use and downloads the checkpoint once more (a few GB, minutes).
+
 Run:
   .venv/bin/modal run scripts/modal_sam.py --split dev --dry   # list clips and stop
   .venv/bin/modal run scripts/modal_sam.py --split dev
@@ -26,7 +32,9 @@ image = (
     .apt_install("git", "ffmpeg", "libgl1", "libglib2.0-0")
     .pip_install("torch==2.10.0", "torchvision", index_url="https://download.pytorch.org/whl/cu128")
     .pip_install(f"git+https://github.com/facebookresearch/sam3.git@{SAM3_COMMIT}", "opencv-python-headless",
-                 "huggingface_hub", "numpy", "einops")
+                 "huggingface_hub", "numpy<2", "einops", "pycocotools", "psutil", "timm>=1.0.17", "iopath>=0.1.10",
+                 "ftfy==6.1.1", "regex", "tqdm", "typing_extensions", "setuptools<81",  # pkg_resources
+                 "scipy", "hydra-core", "omegaconf")  # every module-level import that sam3's model builder reaches
 )
 weights = modal.Volume.from_name("indexreel-hf-cache", create_if_missing=True)
 
