@@ -1,4 +1,26 @@
-# Ignore everything, then allow a short list. To track a new path, add a "!" line below.
+# Ignore everything, then allow what I publish. To publish a new path, add a "!" line below.
+# Nothing under docs/ is ever published. Anything public goes in one of the folders below.
 /*
 !/.gitignore
 !/README.md
+!/LICENSE
+!/pyproject.toml
+!/src/
+!/scripts/
+!/tests/
+!/eval/
+
+# Inside the allowed folders: caches and media stay on this iMac.
+**/__pycache__/
+.DS_Store
+*.pkl
+*.err
+*.mp4
+*.mov
+*.webm
+*.mp3
+*.wav
+*.pt
+*.pth
+*.onnx
+*.safetensors

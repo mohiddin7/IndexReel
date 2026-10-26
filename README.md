@@ -6,7 +6,7 @@ I'm building it for the Meta Global AI Developer Hackathon (Oct 26 to Nov 4, 202
 
 ## Status
 
-Planning. The code starts on Oct 26.
+Early build. Localisation rules and tests are in; matching and the review UI come next.
 
 ## How it will work
 
@@ -14,6 +14,10 @@ Planning. The code starts on Oct 26.
 - SAM 3.1 only localises: it finds a screen to rectify, a picture-in-picture inset to crop, and captions or logos to mask.
 - Muse Spark and Muse Voice Transcribe extract claims, each tied to a caption span or a speech turn.
 - I approve every merge by hand, and a clip can stay "unresolved".
+
+## What is new and what is older
+
+Before the build window opened on Oct 26 I did private research and ran a small synthetic experiment on copy detection. Nothing from that is in this repo. Everything here was written after the window opened, in the commits after the `pre-window` tag. The frozen rules of my day-1 test are in `eval/gate.md`.
 
 ## Author
 
