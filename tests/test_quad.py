@@ -51,3 +51,10 @@ def test_warp_rectifies_and_falls_back():
     out = quad.warp(img, quad.order_corners(RECT))
     assert out.shape == (360, 640, 3) and abs(int(out[10, 10, 0]) - 200) < 10
     assert quad.warp(img, None).shape == (360, 640, 3)
+
+
+def test_min_support_rejects_a_rectangle_with_no_edge():
+    plain = np.full((360, 640), 90, np.uint8)  # nothing there, like a fixed inset on a street scene
+    cand = quad.order_corners([[30, 80], [318, 80], [318, 242], [30, 242]])
+    assert quad.pick([cand], plain, None, min_support=0.0) is not None
+    assert quad.pick([cand], plain, None, min_support=0.5) is None

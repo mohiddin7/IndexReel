@@ -68,3 +68,9 @@ Changing prompts, quad rules, threshold, split membership or the pass rule after
 ## Report
 
 For each arm: false merges, the four paired outcomes per transform, k/4 with Wilson 95% intervals, the threshold, any full-frame fallbacks, cost and latency.
+
+## Amendment 1 (Oct 26, before any gate-split output and before any SAM call)
+
+The first dev run of the OpenCV control scored 0 of 4 on both transforms with zero full-frame fallbacks. The cause is in my rules: the fixed inset rectangle is a candidate, but nothing says when a candidate is good enough to accept, so the control cropped that patch out of every clip, including the plain originals, and broke their matches. SAM returns nothing when a concept is absent, so this made the control unfairly weak.
+
+Change: an OpenCV candidate counts only if its edge support is at least theta. Edge support is the share of the quad's boundary pixels that lie within 2 px of a Canny edge. I set theta on dev only, from {0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9}: the largest theta that gives the highest dev total (PiP hits plus re-film hits). Then I freeze it for the gate split. Nothing else changes. SAM output is accepted as returned, with the same quad rule and no confidence cut-off. I keep the theta = 0 result in the report as a diagnostic.

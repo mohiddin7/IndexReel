@@ -63,23 +63,27 @@ def edge_candidates(gray, extra=()):
     return out
 
 
+def support(quad, edges):
+    """Share of the quad's boundary pixels that lie within 2 px of a Canny edge."""
+    ring = np.zeros(edges.shape, np.uint8)
+    cv2.polylines(ring, [quad.astype(np.int32)], True, 1, 1)
+    near = cv2.dilate(edges, np.ones((5, 5), np.uint8)) > 0
+    return float(near[ring > 0].mean())
+
+
 def rank_key(quad, gray, prev, edges):
     """Smaller is better: most motion inside, then edge support on the boundary, then area, then coordinates."""
-    poly = quad.astype(np.int32)
     inside = np.zeros(gray.shape, np.uint8)
-    cv2.fillConvexPoly(inside, poly, 1)
-    ring = np.zeros_like(inside)
-    cv2.polylines(ring, [poly], True, 1, 1)
+    cv2.fillConvexPoly(inside, quad.astype(np.int32), 1)
     motion = 0.0 if prev is None else float(np.abs(gray.astype(np.int16) - prev.astype(np.int16))[inside > 0].mean())
-    near = cv2.dilate(edges, np.ones((5, 5), np.uint8)) > 0  # within 2 px
-    return (-motion, -float(near[ring > 0].mean()), -float(inside.sum()), tuple(quad.ravel().tolist()))
+    return (-motion, -support(quad, edges), -float(inside.sum()), tuple(quad.ravel().tolist()))
 
 
-def pick(cands, gray, prev=None):
-    if not cands:
-        return None
+def pick(cands, gray, prev=None, min_support=0.0):
+    """Best candidate by rank_key among those whose boundary has at least min_support edge support."""
     edges = edge_map(gray)
-    return min(cands, key=lambda q: rank_key(q, gray, prev, edges))
+    ok = [q for q in cands if support(q, edges) >= min_support]
+    return min(ok, key=lambda q: rank_key(q, gray, prev, edges)) if ok else None
 
 
 def warp(frame, quad):
