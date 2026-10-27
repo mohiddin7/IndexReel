@@ -24,3 +24,5 @@
 *.pth
 *.onnx
 *.safetensors
+
+local.env
