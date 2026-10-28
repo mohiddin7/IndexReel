@@ -23,6 +23,7 @@ Return {"claims": [{"claim": "...", "kind": "place" or "time" or "event", "cited
 """
 COLUMNS = ["clip", "claim_id", "claim_text", "quote", "status"]
 MAX_OUTPUT = 4000
+EFFORT = "minimal"
 
 
 def captions(run):
@@ -58,15 +59,38 @@ def rows_from(answer, posts, log=print):
 
 
 class SparkText(verify.SparkJudge):
-    """The verify stage's Spark client, asked with text only. It connects on the first request, so a run whose
-    answer is cached needs no key."""
+    """The verify stage's Spark client, asked with text only, at the minimal reasoning effort of verify's cheap call
+    (eval/spark-h8.md: effort does not change accuracy). It connects on the first request, so a run whose answer is
+    cached needs no key. One attempt only: an answer cut off at MAX_OUTPUT is reported, never asked again."""
 
     def __init__(self, workdir):
         self.workdir = workdir
 
     def ask(self, text):
+        """(answer, cost in USD or None when the API reports no usage, final status such as `completed`)."""
         verify.SparkJudge.__init__(self, self.workdir)
-        return self._ask([{"type": "input_text", "text": text}], max_output_tokens=MAX_OUTPUT)
+        out, final = [], None
+        with self.cli.responses.stream(model=verify.MODEL, input=[{"type": "message", "role": "user",
+                                                                  "content": [{"type": "input_text", "text": text}]}],
+                                       max_output_tokens=MAX_OUTPUT, reasoning={"effort": EFFORT}) as s:
+            for ev in s:
+                if ev.type == "response.output_text.delta":
+                    out.append(ev.delta)
+                elif ev.type in ("response.completed", "response.incomplete", "response.failed"):
+                    final = ev.response
+        if final is None:
+            return None, None, "no final event"
+        reason = getattr(getattr(final, "incomplete_details", None), "reason", None) or getattr(getattr(final, "error", None), "message", None)
+        status = final.status + (f" ({reason})" if reason else "")
+        return (verify.parse("".join(out)) if final.status == "completed" else None), cost_usd(final.usage), status
+
+
+def cost_usd(u):
+    if u is None:
+        return None
+    cached = (u.input_tokens_details.cached_tokens or 0) if u.input_tokens_details else 0
+    return ((u.input_tokens - cached) * verify.PRICE["input"] + cached * verify.PRICE["cached"]
+            + u.output_tokens * verify.PRICE["output"]) / 1e6
 
 
 def worst_case_usd(text):
@@ -80,13 +104,17 @@ def extract(run, judge, cache, max_usd=0.10, out=None, log=print):
     rows, spent, cost = [], 0.0, 0.0
     if posts:
         text = request(posts)
-        key = hashlib.sha256(json.dumps([verify.MODEL, PROMPT, MAX_OUTPUT, posts]).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([verify.MODEL, PROMPT, MAX_OUTPUT, EFFORT, posts]).encode()).hexdigest()
         hit = cache.get(key)
         if hit is None:
             if worst_case_usd(text) > max_usd:
                 log(f"claims: stopped, one request may cost up to ${worst_case_usd(text):.4f} (--max-usd {max_usd}); no claims written")
                 return 0.0, 0.0
-            ans, spent = judge.ask(text)
+            ans, spent, status = judge.ask(text)
+            if status != "completed":
+                shown = "not reported" if spent is None else f"${spent:.4f}"
+                log(f"claims: the request ended {status}, cost {shown}; no claims written, nothing cached")
+                return spent or 0.0, 0.0
             hit = {"answer": ans, "cost": spent}
             cache.put(key, hit)
         rows, cost = rows_from(hit["answer"], posts, log), hit["cost"]

@@ -7,13 +7,13 @@ from indexreel import claims, cli, verify
 class Fake:
     """Stands in for Spark: returns a fixed answer and counts requests."""
 
-    def __init__(self, answer, cost=0.004):
-        self.answer, self.cost, self.calls = answer, cost, 0
+    def __init__(self, answer, cost=0.004, status="completed"):
+        self.answer, self.cost, self.status, self.calls = answer, cost, status, 0
 
     def ask(self, text):
         self.calls += 1
         self.text = text
-        return self.answer, self.cost
+        return self.answer, self.cost, self.status
 
 
 def run_dir(tmp_path, caps):
@@ -75,3 +75,48 @@ def test_the_answer_is_cached_and_the_budget_stops_a_new_request(tmp_path):
 
 def test_claims_is_a_subcommand():
     assert "claims" in [name for name, _, _ in cli.STAGES]
+
+
+def test_a_response_cut_off_at_the_token_cap_writes_nothing_caches_nothing_and_says_so(tmp_path):
+    run, cache, logs = run_dir(tmp_path, CAPS), verify.Cache(tmp_path / "c"), []
+    cut = Fake(None, cost=0.017, status="incomplete (max_output_tokens)")
+    assert claims.extract(run, cut, cache, log=logs.append) == (0.017, 0.0)
+    assert cut.calls == 1 and not (run / "claims.csv").exists()
+    assert logs == ["claims: the request ended incomplete (max_output_tokens), cost $0.0170; no claims written, nothing cached"]
+    later = Fake(ANSWER)
+    claims.extract(run, later, cache)
+    assert later.calls == 1 and len(read(run)) == 5  # the cut-off answer was not cached
+    logs.clear()
+    assert claims.extract(run_dir(tmp_path / "u", CAPS), Fake(None, cost=None, status="failed"), verify.Cache(tmp_path / "d"),
+                          log=logs.append) == (0.0, 0.0)
+    assert logs[0].endswith("cost not reported; no claims written, nothing cached")
+
+
+def test_spark_text_reads_the_final_event_itself_and_asks_once(monkeypatch):
+    from types import SimpleNamespace as NS
+    usage = NS(input_tokens=1000, output_tokens=4000, input_tokens_details=NS(cached_tokens=0))
+
+    class Stream:
+        def __init__(self, events):
+            self.events = events
+
+        def __enter__(self):
+            return iter(self.events)
+
+        def __exit__(self, *exc):
+            return False
+
+    calls = []
+
+    def fake_init(self, workdir):
+        self.cli = NS(responses=NS(stream=lambda **kw: calls.append(kw) or Stream(events)))
+
+    monkeypatch.setattr(verify.SparkJudge, "__init__", fake_init)
+    cut = NS(status="incomplete", incomplete_details=NS(reason="max_output_tokens"), error=None, usage=usage)
+    events = [NS(type="response.output_text.delta", delta='{"cla'), NS(type="response.incomplete", response=cut)]
+    ans, cost, status = claims.SparkText("w").ask("caption text")
+    assert (ans, status, len(calls)) == (None, "incomplete (max_output_tokens)", 1)
+    assert abs(cost - (1000 * 1.25 + 4000 * 4.25) / 1e6) < 1e-12 and calls[0]["reasoning"] == {"effort": "minimal"}
+    done = NS(status="completed", incomplete_details=None, error=None, usage=usage)
+    events = [NS(type="response.output_text.delta", delta='{"claims": []}'), NS(type="response.completed", response=done)]
+    assert claims.SparkText("w").ask("caption text")[::2] == ({"claims": []}, "completed")
