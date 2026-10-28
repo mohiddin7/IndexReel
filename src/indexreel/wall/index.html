@@ -139,8 +139,8 @@ function history(p) {
   let verdict = "";
   if (v.verdict) {
     const reason = String(v.reason || "").replace(/^re-asked,\s*/i, "");
-    // a 'different' verdict whose reason starts with 'same ...' names a shared event detail: same event, different footage
-    const event = v.verdict === "different" && /^same\b/i.test(reason);
+    // only the judge's own same_event answer (full-fidelity re-ask) says "same event"; "unsure" or empty says nothing
+    const event = v.verdict === "different" && v.same_event === "yes";
     verdict = `<div class="small"><strong>Verifier says: ${esc(VERDICT_WORDS[v.verdict] || v.verdict)}${event ? " (same event, different footage)" : ""}</strong>${v.confidence ? ` <span class="muted">confidence ${esc(v.confidence)}</span>` : ""}</div>` +
       (reason ? `<div class="small muted">${event ? "It names what the two clips share, not what makes them one recording: " : "Reason given: "}${esc(reason)}</div>` : "");
   }

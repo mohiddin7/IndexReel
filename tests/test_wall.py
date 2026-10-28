@@ -545,7 +545,7 @@ def test_the_page_words_a_partial_pair_inside_one_recording_as_the_same_recordin
 def test_the_page_names_posts_shows_the_verdict_first_and_counts_compilations_apart():
     page = wall.PAGE.read_text()
     assert "const nm = " in page and "`post ${i + 1}`" in page  # a clip with a source is "post N", not a long id
-    assert "Verifier says:" in page and "same event, different footage" in page and '/^same\\b/i' in page
+    assert "Verifier says:" in page and "same event, different footage" in page and 'v.same_event === "yes"' in page and "/^same" not in page
     assert page.index("verdict = `") < page.index("<strong>History</strong>")  # the verdict comes before the history line
     assert "recording${nRec === 1" in page and "compilation${nComp === 1" in page
     assert "function sharedPrefix" in page and "const stretchOf" in page and "comes from:" in page
@@ -564,3 +564,16 @@ def test_a_confirmed_compilation_is_listed_under_decided_by_hand(suggested):
     s = wall.state(suggested)
     assert s["clip_decisions"]["v_upload"]["action"] == "confirm_compilation"
     assert any(r["status"] == "compilation" and r["members"] == ["v_upload"] for r in s["recordings"])
+
+
+def test_the_verifiers_same_event_answer_reaches_the_pair_data(run):
+    text = (run / "pairs.csv").read_text().splitlines()
+    head = text[0].split(",") + ["verify_same_event"]
+    rows = [dict(zip(head, line.split(",") + [""])) for line in text[1:]]
+    for r in rows:
+        if r["pair_id"] == "b_cam1~b_cam2":
+            r.update(verify_verdict="different", verify_same_event="unsure")
+    (run / "pairs.csv").write_text("\n".join([",".join(head)] + [",".join(r[c] for c in head) for r in rows]) + "\n")
+    p = {x["id"]: x for x in wall.state(run)["pairs"]}
+    assert p["b_cam1~b_cam2"]["verify"]["same_event"] == "unsure" and p["b_cam1~b_cam2"]["verify"]["verdict"] == "different"
+    assert "same_event" not in p["a_orig~a_refilm"]["verify"]  # an empty value is left out
