@@ -70,6 +70,21 @@ With two thresholds `merge_at` and `floor` (written to `run.json` and `clusters.
 
 `merge_at` is the smallest value with no false merge among the dev negatives; `floor` was chosen on dev. How both were set is in `eval/match-thresholds.md`. The verifier is meant to work on the `unresolved` pairs.
 
+## Effective bands
+
+Once the verifier has filled `verify_verdict`, a pair counts as the band below (`cluster.effective_band`); with an empty verdict it counts as its `band`.
+
+| `band` | `verify_verdict` | counts as |
+|---|---|---|
+| merged | empty or `same` | merged |
+| merged | `different` or `abstain` | unresolved |
+| unresolved | `same` | merged |
+| unresolved | `different` | apart |
+| unresolved | `abstain` or empty | unresolved |
+| apart | anything | apart |
+
+A merged pair the verifier doubts goes back to a person instead of staying merged or becoming apart: the two stages disagree. Recordings, `conflicts` and `status` are computed on effective bands, and the audit is applied on top of them.
+
 ## clusters.json
 
 ```

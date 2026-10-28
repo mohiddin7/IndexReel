@@ -69,3 +69,12 @@ def test_band_edges():
     assert cluster.band(0.29, 0.20, 0.54, 0.30) == "apart"
     assert cluster.band(0.29, 0.80, 0.54, 0.30) == "unresolved"  # frames match but not in time
     assert cluster.band(0.40, 0.40, 0.54, 0.30) == "unresolved"
+
+
+@pytest.mark.parametrize("band,verdict,expected", [
+    ("merged", "", "merged"), ("merged", "same", "merged"), ("merged", "different", "unresolved"),
+    ("merged", "abstain", "unresolved"), ("unresolved", "same", "merged"), ("unresolved", "different", "apart"),
+    ("unresolved", "abstain", "unresolved"), ("unresolved", "", "unresolved"), ("apart", "same", "apart"),
+    ("apart", "", "apart")])
+def test_effective_band(band, verdict, expected):
+    assert cluster.effective_band({"band": band, "verify_verdict": verdict}) == expected

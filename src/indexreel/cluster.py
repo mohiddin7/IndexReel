@@ -16,6 +16,20 @@ def band(aligned, score, merge_at, floor):
     return "unresolved"
 
 
+def effective_band(row):
+    """The band a pair of pairs.csv counts as once the verifier has spoken, before any human decision.
+
+    merged stays merged unless the verifier says different or abstains (then the two disagree and a person decides);
+    unresolved becomes merged on same and apart on different; apart stays apart, it is never sent to the verifier.
+    """
+    band, verdict = row["band"], row.get("verify_verdict") or ""
+    if band == "merged":
+        return "merged" if verdict in ("", "same") else "unresolved"
+    if band == "unresolved":
+        return {"same": "merged", "different": "apart"}.get(verdict, "unresolved")
+    return "apart"
+
+
 def apply_audit(bands, audit):
     """Human decisions override the bands in file order, the last entry for a pair takes effect; reset restores the computed band."""
     out = dict(bands)
