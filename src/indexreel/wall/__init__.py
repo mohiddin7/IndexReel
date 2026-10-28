@@ -16,6 +16,7 @@ from indexreel import cluster, withdraw
 from indexreel.wall.runs import Runs
 
 ACTIONS = {"approve_merge", "split", "reset"}
+CLIP_ACTIONS = {"confirm_compilation", "dismiss_compilation"}  # about a clip, so the pair is null
 PAGE = Path(__file__).with_name("index.html")
 RESULTS = Path(__file__).resolve().parents[3] / "eval" / "results.json"  # frozen bars and measurements, shown read-only
 RUN_PATH = re.compile(r"/r/([0-9a-f]{12})(/.*)?")
@@ -55,15 +56,22 @@ def read_audit(run):
     return [json.loads(line) for line in p.read_text().splitlines() if line.strip()] if p.exists() else []
 
 
-def append_audit(run, pair, action, note=""):
-    """Append one human decision to audit.jsonl and return it. The file is never rewritten."""
+def append_audit(run, pair, action, note="", clip=None):
+    """Append one human decision to audit.jsonl and return it. The file is never rewritten.
+
+    A decision about a pair names the pair; confirming or dismissing a compilation names the clip and has pair null."""
     run = Path(run)
-    if pair not in {r["pair_id"] for r in read_pairs(run)}:
-        raise ValueError(f"unknown pair: {pair!r}")
-    if action not in ACTIONS:
+    if action in CLIP_ACTIONS:
+        if pair is not None or clip not in {c["id"] for c in json.loads((run / "clips.json").read_text())["clips"]}:
+            raise ValueError(f"{action} needs a clip of this run and no pair: {clip!r}")
+    elif action not in ACTIONS:
         raise ValueError(f"unknown action: {action!r}")
+    elif pair not in {r["pair_id"] for r in read_pairs(run)}:
+        raise ValueError(f"unknown pair: {pair!r}")
     entry = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "actor": "human", "action": action,
              "pair": pair, "note": str(note)[:500]}
+    if action in CLIP_ACTIONS:
+        entry["clip"] = clip
     path = run / "audit.jsonl"
     with _audit_lock:
         # a file that ends without a newline would otherwise glue the new entry to its last line
@@ -122,10 +130,14 @@ def state(run, claims=None, results=None):
     current = cluster.apply_audit(computed, audit)
     recs = withdraw.run_recordings(run, audit)  # cluster.resolve: the one recompute path, so ids match the withdraw panel
     compilations = {r["members"][0] for r in recs if r["status"] == "compilation"}
+    suggestions = cluster.resolve_all([c["id"] for c in clips], rows, audit)[2]  # detected, not yet confirmed or dismissed
     by_hand = {}
+    clip_decisions = {}
     for e in audit:  # the last entry for a pair counts; reset hands the pair back to the matcher
-        if e["pair"] in computed:
+        if e.get("pair") in computed:
             by_hand[e["pair"]] = e if e["action"] != "reset" else None
+        elif e["action"] in CLIP_ACTIONS:
+            clip_decisions[e["clip"]] = e
     pairs = []
     for r in rows:
         offset = float(r["offset_s"])
@@ -141,7 +153,7 @@ def state(run, claims=None, results=None):
             "core": core if len(core) == 2 else None, "decision": by_hand.get(r["pair_id"]),
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
-    return {"run": meta, "claims": claims is not None, "results": read_results(results) if results else None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "audit": audit}
+    return {"run": meta, "claims": claims is not None, "results": read_results(results) if results else None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -239,7 +251,7 @@ class Handler(BaseHTTPRequestHandler):
             if run is None or path != "/api/decide":
                 return self.reply(404, {"error": "not found"})
             body = self.json_body()
-            append_audit(run, body["pair"], body["action"], body.get("note", ""))
+            append_audit(run, body.get("pair"), body["action"], body.get("note", ""), body.get("clip"))
         except TypeError as e:
             return self.reply(415, {"error": str(e)})
         except RuntimeError as e:

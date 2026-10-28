@@ -302,16 +302,22 @@ def test_results_status_comes_from_the_count_and_the_bar_not_from_the_file(tmp_p
     assert out[4]["ci"] and out[5]["ci"] is None
 
 
-def test_the_results_file_in_eval_is_consistent_and_keeps_the_failures():
+def test_the_results_file_in_eval_is_consistent_and_keeps_the_frozen_failures():
     root = Path(__file__).resolve().parents[1]
     rows = wall.read_results(wall.RESULTS)
-    assert all((root / r["source"]).is_file() for r in rows)  # every row names a file that exists
-    status = {r["label"]: r["status"] for r in rows}
+    for r in rows:
+        assert (root / r["source"]).is_file()  # every row names a file that exists
+        k, n = r.get("k"), r.get("n")
+        if k is not None and r.get("bar_op"):  # the status follows from the count and the bar, however the rows are filled in
+            assert r["status"] == ("PASS" if (k >= r["bar_k"] if r["bar_op"] == ">=" else k <= r["bar_k"]) else "FAIL")
+        if k is not None and n:
+            assert 0 <= k <= n and r["ci"][0] <= k / n <= r["ci"][1]
+        assert r["status"] in {"PASS", "FAIL", "REPORTED", "NOT RUN"}
+    status = {r["label"]: r["status"] for r in rows}  # results of frozen runs: they are not rows that get filled in later
     assert status["SAM 3.1, simulated re-film recovered"] == "FAIL"
     assert status["Dev fixture recordings unchanged by the rule"] == "FAIL"
     assert status["Recordings mixing families after approving the correct links"] == "FAIL"
     assert [r["status"] for r in rows if r["group"].startswith("Held-out run 1")] == ["FAIL", "PASS"]
-    assert {r["status"] for r in rows if r["group"].startswith("Held-out run 2")} == {"NOT RUN"}
 
 
 def test_results_reach_the_state_the_server_and_the_export(run, tmp_path):
@@ -339,7 +345,7 @@ def test_pairs_carry_the_core_span_when_the_run_has_one_and_the_page_shows_the_h
     assert all(p["core"] is None for p in wall.state(run)["pairs"])
     page = wall.PAGE.read_text()
     assert "History" in page and "The verifier changed these" in page and "matching core" in page
-    assert "experimental flag" in page
+    assert "experimental" in page and "possible compilation" in page
 
 
 def test_clip_sources_reach_the_page_data_and_the_export(run, tmp_path):
@@ -352,3 +358,75 @@ def test_clip_sources_reach_the_page_data_and_the_export(run, tmp_path):
     assert page.count("</script>") == 2  # the caption cannot close the data block
     html = wall.PAGE.read_text()
     assert "postCard" in html and "safeUrl" in html and "noopener" in html
+
+
+@pytest.fixture
+def suggested(tmp_path):
+    """The compilation example as the matcher left it: a suggestion, no human decision yet."""
+    shutil.copytree(COMPILATION, tmp_path / "sugg")
+    (tmp_path / "sugg" / "audit.jsonl").write_text("")
+    return tmp_path / "sugg"
+
+
+def test_a_suggested_compilation_is_listed_with_its_spans_and_joins_nothing_yet(suggested):
+    s = wall.state(suggested)
+    (sg,) = s["suggestions"]
+    assert sg["clip"] == "v_upload" and [(g["clips"], g["start_s"], g["end_s"]) for g in sg["segments"]][0] == (["q_cam"], 0.0, 2.0)
+    assert not any(r["status"] == "compilation" for r in s["recordings"]) and s["clip_decisions"] == {}
+    assert not any(p["band"] == "partial" for p in s["pairs"])
+    assert next(r for r in s["recordings"] if "v_upload" in r["members"])["status"] == "unresolved"
+
+
+def test_confirming_and_dismissing_a_compilation_are_one_audit_line_each_with_a_null_pair(suggested):
+    entry = wall.append_audit(suggested, None, "confirm_compilation", "three sources", clip="v_upload")
+    assert entry["pair"] is None and entry["clip"] == "v_upload" and entry["action"] == "confirm_compilation"
+    assert json.loads((suggested / "audit.jsonl").read_text().splitlines()[-1]) == entry
+    s = wall.state(suggested)
+    assert s["suggestions"] == [] and s["clip_decisions"]["v_upload"]["note"] == "three sources"
+    comp = next(r for r in s["recordings"] if r["status"] == "compilation")
+    assert comp["members"] == ["v_upload"] and {p["id"]: p["band"] for p in s["pairs"]}["p_orig~v_upload"] == "partial"
+    wall.append_audit(suggested, None, "dismiss_compilation", clip="v_upload")
+    s = wall.state(suggested)
+    assert s["suggestions"] == [] and not any(r["status"] == "compilation" for r in s["recordings"])
+    assert s["clip_decisions"]["v_upload"]["action"] == "dismiss_compilation"
+    assert len((suggested / "audit.jsonl").read_text().splitlines()) == 2
+
+
+def test_compilation_actions_need_a_clip_of_the_run_and_no_pair(suggested):
+    before = (suggested / "audit.jsonl").read_bytes()
+    for pair, clip in ((None, "nope"), (None, None), ("p_orig~v_upload", "v_upload")):
+        with pytest.raises(ValueError):
+            wall.append_audit(suggested, pair, "confirm_compilation", clip=clip)
+    with pytest.raises(ValueError):
+        wall.append_audit(suggested, None, "split")  # a pair action without a pair
+    assert (suggested / "audit.jsonl").read_bytes() == before
+
+
+def test_the_page_and_the_withdraw_stage_still_agree_after_each_compilation_decision(suggested):
+    from indexreel import withdraw
+    assert wall.state(suggested)["recordings"] == withdraw.run_recordings(suggested)
+    wall.append_audit(suggested, None, "confirm_compilation", clip="v_upload")
+    assert wall.state(suggested)["recordings"] == withdraw.run_recordings(suggested)
+
+
+def test_http_decides_a_compilation_by_clip(suggested):
+    srv = wall.make_server(suggested)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        head = {"Content-Type": "application/json"}
+        status, body = call(srv, "POST", "/api/decide", json.dumps({"clip": "v_upload", "action": "confirm_compilation"}), head)
+        assert status == 200 and json.loads(body)["suggestions"] == []
+        assert call(srv, "POST", "/api/decide", json.dumps({"clip": "zzz", "action": "confirm_compilation"}), head)[0] == 400
+        assert json.loads((suggested / "audit.jsonl").read_text().splitlines()[-1])["pair"] is None
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_page_has_the_confirm_and_dismiss_buttons_and_the_recorded_export_has_none(suggested, tmp_path):
+    page = wall.PAGE.read_text()
+    assert "confirm_compilation" in page and "dismiss_compilation" in page and "Possible compilations" in page
+    out = tmp_path / "exp"
+    wall.export(suggested, out)
+    data = json.loads((out / "index.html").read_text().split('id="recorded-data">')[1].split("</script>")[0])
+    assert data["state"]["suggestions"][0]["clip"] == "v_upload"
