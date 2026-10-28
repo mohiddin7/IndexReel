@@ -577,3 +577,116 @@ def test_the_verifiers_same_event_answer_reaches_the_pair_data(run):
     p = {x["id"]: x for x in wall.state(run)["pairs"]}
     assert p["b_cam1~b_cam2"]["verify"]["same_event"] == "unsure" and p["b_cam1~b_cam2"]["verify"]["verdict"] == "different"
     assert "same_event" not in p["a_orig~a_refilm"]["verify"]  # an empty value is left out
+
+
+SHEET = '''clip,claim_id,claim_text,quote,status
+a_orig,c1,"Fire in the hills, at night",fire in the hills,suggested
+a_copy,c1,"Fire in the hills, at night",the "hills" burn,suggested
+a_orig,c2,Filmed in 2018,filmed in 2018,approved
+c_alone,c3,A clip with a café sign,café sign,rejected
+b_cam1,c4,Something odd,odd,
+'''
+
+
+@pytest.fixture
+def sheet(tmp_path):
+    f = tmp_path / "claims.csv"
+    f.write_text(SHEET)
+    return f
+
+
+def test_a_sheet_with_a_status_column_is_reviewed_and_one_without_counts_every_row(sheet, tmp_path):
+    rows, reviewed = wall.read_claim_rows(sheet)
+    assert reviewed and [r["status"] for r in rows] == ["suggested", "suggested", "approved", "rejected", "suggested"]  # empty means suggested
+    assert rows[1]["quote"] == 'the "hills" burn' and rows[0]["claim_text"] == "Fire in the hills, at night"
+    plain = tmp_path / "plain.csv"
+    plain.write_text(CLAIMS)
+    rows, reviewed = wall.read_claim_rows(plain)
+    assert not reviewed and {r["status"] for r in rows} == {"approved"} and all(r["quote"] == "" for r in rows)
+
+
+def test_withdraw_counts_only_approved_rows_and_says_how_many_are_waiting(run, sheet):
+    out = wall.withdraw_view(run, sheet, "r1")
+    ids = {e["claim_id"] for k in ("lost", "kept", "undecided") for e in out[k]} | set(out["unaffected"])
+    assert ids == {"c2"} and out["pending"] == 3 and out["text"] == {"c2": "Filmed in 2018"}  # c1 and c4 wait, c3 is rejected
+    wall.set_claim_status(run, sheet, "a_orig", "c1", "approve_claim")
+    wall.set_claim_status(run, sheet, "a_copy", "c1", "approve_claim")
+    out = wall.withdraw_view(run, sheet, "r1")
+    assert {e["claim_id"] for e in out["lost"]} == {"c1", "c2"} and out["pending"] == 1
+
+
+def test_approving_rewrites_the_status_and_logs_one_audit_line(run, sheet):
+    import csv as _csv
+    before = (run / "audit.jsonl").read_text().splitlines()
+    entry = wall.set_claim_status(run, sheet, "a_orig", "c1", "approve_claim", "checked the caption")
+    rows = list(_csv.DictReader(open(sheet, newline="")))
+    assert [(r["clip"], r["claim_id"], r["status"]) for r in rows][:2] == [("a_orig", "c1", "approved"), ("a_copy", "c1", "suggested")]
+    assert rows[1]["quote"] == 'the "hills" burn' and rows[3]["claim_text"] == "A clip with a café sign" and list(rows[0]) == ["clip", "claim_id", "claim_text", "quote", "status"]
+    lines = (run / "audit.jsonl").read_text().splitlines()
+    assert lines[:len(before)] == before and len(lines) == len(before) + 1 and json.loads(lines[-1]) == entry
+    assert (entry["action"], entry["pair"], entry["clip"], entry["claim"], entry["note"], entry["actor"]) == ("approve_claim", None, "a_orig", "c1", "checked the caption", "human")
+    wall.set_claim_status(run, sheet, "a_orig", "c1", "reject_claim")
+    wall.set_claim_status(run, sheet, "a_orig", "c1", "reset_claim")
+    assert next(r for r in _csv.DictReader(open(sheet, newline="")) if r["clip"] == "a_orig" and r["claim_id"] == "c1")["status"] == "suggested"
+    assert not (sheet.parent / "claims.csv.tmp").exists()
+
+
+def test_a_bad_claim_decision_changes_nothing(run, sheet, tmp_path):
+    before_sheet, before_audit = sheet.read_bytes(), (run / "audit.jsonl").read_bytes()
+    for clip, cid, action in (("a_orig", "c9", "approve_claim"), ("nope", "c1", "approve_claim"), ("a_orig", "c1", "delete_claim")):
+        with pytest.raises(ValueError):
+            wall.set_claim_status(run, sheet, clip, cid, action)
+    plain = tmp_path / "plain.csv"
+    plain.write_text(CLAIMS)
+    with pytest.raises(ValueError):
+        wall.set_claim_status(run, plain, "a_orig", "c1", "approve_claim")  # a hand-written sheet has no status to set
+    with pytest.raises(ValueError):
+        wall.append_audit(run, None, "approve_claim", clip="a_orig")  # no claim id
+    assert sheet.read_bytes() == before_sheet and (run / "audit.jsonl").read_bytes() == before_audit
+
+
+def test_claim_lines_in_the_audit_do_not_change_pairs_recordings_or_compilations(run, sheet):
+    from indexreel import withdraw
+    base = wall.state(run)
+    wall.set_claim_status(run, sheet, "a_orig", "c1", "approve_claim")
+    after = wall.state(run, sheet)
+    assert after["recordings"] == base["recordings"] == withdraw.run_recordings(run)
+    assert [p["band"] for p in after["pairs"]] == [p["band"] for p in base["pairs"]] and after["clip_decisions"] == base["clip_decisions"]
+
+
+def test_the_claims_sheet_defaults_to_claims_csv_in_the_run_directory(run, sheet, tmp_path):
+    assert wall.claims_file(run) is None
+    (run / "claims.csv").write_text(SHEET)
+    assert wall.claims_file(run) == run / "claims.csv" and wall.claims_file(run, sheet) == sheet
+    s = wall.state(run, wall.claims_file(run))
+    assert s["claims"] and s["claim_review"] and len(s["claim_rows"]) == 5
+    out = tmp_path / "exp"
+    wall.export(run, out)  # no --claims given: the sheet in the run directory is used
+    data = json.loads((out / "index.html").read_text().split('id="recorded-data">')[1].split("</script>")[0])
+    assert len(data["state"]["claim_rows"]) == 5 and set(data["withdraw"]) == {r["id"] for r in data["state"]["recordings"]}
+    assert {e["claim_id"] for k in ("lost", "kept") for e in data["withdraw"]["r1"][k]} == {"c2"}  # only the approved row
+
+
+def test_http_approves_a_claim_and_withdraw_follows(run, sheet):
+    srv = wall.make_server(run, claims=sheet)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        head = {"Content-Type": "application/json"}
+        body = json.dumps({"action": "approve_claim", "clip": "a_orig", "claim": "c1", "note": "ok"})
+        status, out = call(srv, "POST", "/api/decide", body, head)
+        assert status == 200 and {(r["clip"], r["claim_id"]): r["status"] for r in json.loads(out)["claim_rows"]}[("a_orig", "c1")] == "approved"
+        status, out = call(srv, "GET", "/api/withdraw?recording=r1")
+        assert status == 200 and json.loads(out)["pending"] == 2
+        assert call(srv, "POST", "/api/decide", json.dumps({"action": "approve_claim", "clip": "a_orig", "claim": "zz"}), head)[0] == 400
+        assert call(srv, "POST", "/api/decide", json.dumps({"action": "approve_claim", "clip": "a_orig", "claim": "c1"}), {"Content-Type": "text/plain"})[0] == 415
+        assert json.loads((run / "audit.jsonl").read_text().splitlines()[-1])["action"] == "approve_claim"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_page_marks_the_quote_in_the_caption_and_warns_when_it_is_not_there():
+    page = wall.PAGE.read_text()
+    assert "Claims to review" in page and "approve_claim" in page and "reject_claim" in page and "reset_claim" in page
+    assert "<mark>${esc(quote)}</mark>" in page and "The quote was not found in this post's caption" in page
+    assert "not counted until approved" in page and "Only approved claims count in Withdraw" in page

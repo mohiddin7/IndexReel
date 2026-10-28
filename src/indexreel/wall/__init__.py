@@ -17,6 +17,8 @@ from indexreel.wall.runs import Runs
 
 ACTIONS = {"approve_merge", "split", "reset"}
 CLIP_ACTIONS = {"confirm_compilation", "dismiss_compilation"}  # about a clip, so the pair is null
+CLAIM_ACTIONS = {"approve_claim": "approved", "reject_claim": "rejected", "reset_claim": "suggested"}  # about one row of the claims sheet
+_claims_lock = threading.Lock()
 PAGE = Path(__file__).with_name("index.html")
 RESULTS = Path(__file__).resolve().parents[3] / "eval" / "results.json"  # frozen bars and measurements, shown read-only
 RUN_PATH = re.compile(r"/r/([0-9a-f]{12})(/.*)?")
@@ -56,22 +58,26 @@ def read_audit(run):
     return [json.loads(line) for line in p.read_text().splitlines() if line.strip()] if p.exists() else []
 
 
-def append_audit(run, pair, action, note="", clip=None):
+def append_audit(run, pair, action, note="", clip=None, claim=None):
     """Append one human decision to audit.jsonl and return it. The file is never rewritten.
 
     A decision about a pair names the pair; confirming or dismissing a compilation names the clip and has pair null."""
     run = Path(run)
-    if action in CLIP_ACTIONS:
+    if action in CLIP_ACTIONS or action in CLAIM_ACTIONS:
         if pair is not None or clip not in {c["id"] for c in json.loads((run / "clips.json").read_text())["clips"]}:
             raise ValueError(f"{action} needs a clip of this run and no pair: {clip!r}")
+        if action in CLAIM_ACTIONS and not (isinstance(claim, str) and claim):
+            raise ValueError(f"{action} needs the claim id")
     elif action not in ACTIONS:
         raise ValueError(f"unknown action: {action!r}")
     elif pair not in {r["pair_id"] for r in read_pairs(run)}:
         raise ValueError(f"unknown pair: {pair!r}")
     entry = {"ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "actor": "human", "action": action,
              "pair": pair, "note": str(note)[:500]}
-    if action in CLIP_ACTIONS:
+    if action in CLIP_ACTIONS or action in CLAIM_ACTIONS:
         entry["clip"] = clip
+    if action in CLAIM_ACTIONS:
+        entry["claim"] = claim
     path = run / "audit.jsonl"
     with _audit_lock:
         # a file that ends without a newline would otherwise glue the new entry to its last line
@@ -83,13 +89,75 @@ def append_audit(run, pair, action, note="", clip=None):
     return entry
 
 
+def claims_file(run, explicit=None):
+    """The claims sheet to use: the one named on the command line, else claims.csv inside the run directory."""
+    if explicit:
+        return Path(explicit)
+    f = Path(run) / "claims.csv"
+    return f if f.is_file() else None
+
+
+def read_claim_rows(path):
+    """(rows, reviewed): the rows of a claims sheet as {clip, claim_id, claim_text, quote, status}.
+
+    A sheet with a status column (indexreel claims) is reviewed: only 'approved' rows count, 'rejected' rows are out, and
+    anything else is still 'suggested'. A sheet without one (a hand-written list) counts every row as approved."""
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        reviewed = "status" in (reader.fieldnames or [])
+        rows = []
+        for r in reader:
+            st = (r.get("status") or "").strip().lower() if reviewed else "approved"
+            rows.append({"clip": r["clip"], "claim_id": r["claim_id"], "claim_text": r.get("claim_text") or "",
+                         "quote": r.get("quote") or "", "status": st if st in ("approved", "rejected") else "suggested" if reviewed else "approved"})
+    return rows, reviewed
+
+
+def set_claim_status(run, claims, clip, claim_id, action, note=""):
+    """Approve, reject or reset one row of the claims sheet: rewrite its status column, then log the decision in audit.jsonl."""
+    if action not in CLAIM_ACTIONS:
+        raise ValueError(f"unknown claim action: {action!r}")
+    if claims is None:
+        raise ValueError("no claims sheet")
+    claims = Path(claims)
+    with _claims_lock:
+        with open(claims, newline="") as f:
+            reader = csv.DictReader(f)
+            fields, rows = list(reader.fieldnames or []), list(reader)
+        if "status" not in fields:
+            raise ValueError("this claims sheet has no status column, so its rows cannot be approved here")
+        hit = [r for r in rows if r["clip"] == clip and r["claim_id"] == claim_id]
+        if not hit:
+            raise ValueError(f"no row for clip {clip!r} and claim {claim_id!r}")
+        for r in hit:
+            r["status"] = CLAIM_ACTIONS[action]
+        tmp = claims.with_name(claims.name + ".tmp")
+        with open(tmp, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerows(rows)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, claims)
+    return append_audit(run, None, action, note, clip=clip, claim=claim_id)
+
+
 def withdraw_view(run, claims, recording):
-    """Claims that lose, keep or may keep video support when `recording` is withdrawn (rules in indexreel.withdraw)."""
+    """Claims that lose, keep or may keep video support when `recording` is withdrawn (rules in indexreel.withdraw).
+
+    Only approved rows count; `pending` says how many rows are still waiting for a person."""
     if claims is None:
         raise ValueError("no claims file: start the wall with --claims")
-    by_claim, text = withdraw.read_claims(claims)
+    rows, _ = read_claim_rows(claims)
+    by_claim, text = {}, {}
+    for r in rows:
+        if r["status"] == "approved":
+            clips = by_claim.setdefault(r["claim_id"], [])
+            if r["clip"] not in clips:
+                clips.append(r["clip"])
+            text.setdefault(r["claim_id"], r["claim_text"])
     out = withdraw.withdraw(withdraw.run_recordings(run), by_claim, recording)
-    return out | {"text": text}
+    return out | {"text": text, "pending": sum(r["status"] == "suggested" for r in rows)}
 
 
 def export(run, out, claims=None, results=None):
@@ -98,6 +166,7 @@ def export(run, out, claims=None, results=None):
     Nothing here needs a server. Clip paths and the matching command are left out, and the clips themselves are not copied.
     """
     run, out = Path(run).resolve(), Path(out)
+    claims = claims_file(run, claims)
     if out.exists() and any(out.iterdir()):
         raise ValueError(f"{out} is not empty")
     s = state(run, claims, results)
@@ -162,7 +231,8 @@ def state(run, claims=None, results=None):
             "core": core if len(core) == 2 else None, "decision": by_hand.get(r["pair_id"]),
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
-    return {"run": meta, "claims": claims is not None, "results": read_results(results) if results else None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
+    claim_rows, claim_review = read_claim_rows(claims) if claims is not None else (None, False)
+    return {"run": meta, "claims": claims is not None, "claim_rows": claim_rows, "claim_review": claim_review, "results": read_results(results) if results else None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -218,10 +288,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self.reply(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         if path == "/api/state":
-            return self.reply(200, state(run, self.server.claims, self.server.results))
+            return self.reply(200, state(run, claims_file(run, self.server.claims), self.server.results))
         if path == "/api/withdraw":
             try:
-                return self.reply(200, withdraw_view(run, self.server.claims, parse_qs(urlsplit(self.path).query).get("recording", [""])[0]))
+                return self.reply(200, withdraw_view(run, claims_file(run, self.server.claims), parse_qs(urlsplit(self.path).query).get("recording", [""])[0]))
             except (ValueError, KeyError, OSError) as e:
                 return self.reply(400, {"error": str(e)})
         if path.startswith("/frames/"):
@@ -260,14 +330,17 @@ class Handler(BaseHTTPRequestHandler):
             if run is None or path != "/api/decide":
                 return self.reply(404, {"error": "not found"})
             body = self.json_body()
-            append_audit(run, body.get("pair"), body["action"], body.get("note", ""), body.get("clip"))
+            if body.get("action") in CLAIM_ACTIONS:  # one row of the claims sheet: its status column, then the audit
+                set_claim_status(run, claims_file(run, self.server.claims), body.get("clip"), body.get("claim"), body["action"], body.get("note", ""))
+            else:
+                append_audit(run, body.get("pair"), body["action"], body.get("note", ""), body.get("clip"))
         except TypeError as e:
             return self.reply(415, {"error": str(e)})
         except RuntimeError as e:
             return self.reply(409, {"error": str(e)})
         except (ValueError, KeyError, OSError, AttributeError) as e:
             return self.reply(400, {"error": str(e)})
-        self.reply(200, state(run, self.server.claims, self.server.results))
+        self.reply(200, state(run, claims_file(run, self.server.claims), self.server.results))
 
 
 def make_server(run=None, port=0, claims=None, results=None, workdir=None, steps=None):
@@ -286,7 +359,7 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--results", type=Path, default=RESULTS if RESULTS.is_file() else None, help="results JSON shown in the Results section (default: eval/results.json)")
     ap.add_argument("--export", type=Path, metavar="DIR", help="write a read-only static copy to DIR instead of serving")
-    ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text) for the withdraw panel")
+    ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text, and from `indexreel claims` quote and status) for the withdraw panel; default: claims.csv in the run directory")
     args = ap.parse_args(argv)
     if bool(args.run) == bool(args.workdir):
         ap.error("give a run directory or --workdir, not both and not neither")

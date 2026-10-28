@@ -60,6 +60,9 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
 nav { margin: 6px 0 0; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
 .history { margin-top: 6px; }
 .post { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 320px; flex: 1 1 240px; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.claim .quote { margin: 6px 0; }
+mark { background: var(--warn-bg); color: inherit; padding: 0 2px; border-radius: 3px; outline: 1px solid var(--line); }
+.claim-note { margin: 4px 0; }
 .post-line { margin: 2px 0 2px 12px; }
 .post q { display: block; margin: 4px 0; quotes: none; overflow-wrap: anywhere; }
 table.res { border-collapse: collapse; width: 100%; min-width: 640px; table-layout: fixed; font-size: 14px; }
@@ -80,13 +83,14 @@ table.res th { color: var(--muted); font-weight: 600; font-size: 13px; }
 <header>
   <h1>IndexReel clip wall <a id="newrun" class="small" href="../../" hidden>New run</a></h1>
   <div id="runinfo" class="muted small"></div>
-  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
+  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-claims" id="claims-nav" hidden>Claims</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
 </header>
 <main>
   <section aria-labelledby="h-todo"><h2 id="h-todo">Needs a decision</h2><div id="todo"></div></section>
   <section aria-labelledby="h-comp" id="comp-sec" hidden><h2 id="h-comp">Possible compilations</h2><p class="muted small">A clip that seems to be cut from several recordings. Experimental: the rule that finds these failed 2 of its 4 frozen test bars. Until a person confirms it, the clip stays joined to its sources.</p><div id="comp"></div></section>
   <section aria-labelledby="h-ver"><h2 id="h-ver">The verifier changed these</h2><p class="muted small">Pairs where the verifier's answer moved the band the matcher gave.</p><div id="ver"></div></section>
   <section aria-labelledby="h-recs"><h2 id="h-recs">Recordings</h2><div id="recs"></div></section>
+  <section aria-labelledby="h-claims" id="claims-sec" hidden><h2 id="h-claims">Claims to review</h2><p class="muted small" id="claims-intro"></p><div id="claims"></div></section>
   <section aria-labelledby="h-with"><h2 id="h-with">Withdraw a recording</h2><div id="withdraw"></div></section>
   <section aria-labelledby="h-hand"><h2 id="h-hand">Decided by hand</h2><div id="hand"></div></section>
   <section aria-labelledby="h-res"><h2 id="h-res">Results</h2><div id="results"></div></section>
@@ -185,12 +189,12 @@ function postCard(src, detail) {
 }
 
 // a clip as its post (account, time, caption) when the run knows it, else its id
-function clipLabel(id) {
+function clipLabel(id, withCaption = true) {
   const c = S.clips.find((x) => x.id === id), src = c && c.source;
   if (!src) return `<strong>${esc(id)}</strong>`;
   const who = src.account ? ` @${esc(String(src.account).replace(/^@/, ""))}` : "";
   const cap = src.caption ? String(src.caption).slice(sharedPrefix()).replace(/^[\s.,;:–-]+/, "") : "";
-  const caption = cap ? ` <q>${esc(cap.slice(0, 90))}${cap.length > 90 ? "…" : ""}</q>` : "";
+  const caption = cap && withCaption ? ` <q>${esc(cap.slice(0, 90))}${cap.length > 90 ? "…" : ""}</q>` : "";
   return `<strong>${nm(id)}</strong>${who} <span class="muted">${esc(src.posted_at || "")}</span>${caption}`;
 }
 
@@ -259,6 +263,37 @@ function recCard(r) {
     ${linked.length ? `<details><summary>Evidence: ${linked.length} partial pair${linked.length === 1 ? "" : "s"} (compilation or shared footage)</summary>${linked.map((id) => pairCard(P[id])).join("")}</details>` : ""}</article>`;
 }
 
+// the caption of a clip with the claim's quote marked, so a person can check the words against what the post says
+function quoted(clip, quote) {
+  const c = S.clips.find((x) => x.id === clip), cap = c && c.source && c.source.caption ? String(c.source.caption) : "";
+  const i = quote ? cap.indexOf(quote) : -1;
+  if (i < 0) return `<div class="warn small">The quote was not found in this post's caption: ${esc(quote || "(empty)")}</div>${cap ? `<div class="small muted">${esc(cap)}</div>` : ""}`;
+  return `<div class="quote small">${esc(cap.slice(0, i))}<mark>${esc(quote)}</mark>${esc(cap.slice(i + quote.length))}</div>`;
+}
+
+const CLAIM_BADGE = {suggested: "unresolved", approved: "merged", rejected: "apart"};
+
+function claimCard(r) {
+  const buttons = RECORDED ? "" : `<div class="actions">
+      <input type="text" aria-label="Note for ${esc(r.claim_id)} on ${esc(r.clip)}" placeholder="Note (optional)" maxlength="500">
+      <button class="yes" data-action="approve_claim" ${r.status === "approved" ? "disabled" : ""}>Approve</button>
+      <button class="no" data-action="reject_claim" ${r.status === "rejected" ? "disabled" : ""}>Reject</button>
+      ${r.status === "suggested" ? "" : `<button data-action="reset_claim">Back to suggested</button>`}</div><div class="err" role="alert"></div>`;
+  return `<article class="card claim" data-clip="${esc(r.clip)}" data-claim="${esc(r.claim_id)}">
+    <div><strong>${esc(r.claim_id)}</strong> ${esc(r.claim_text)} <span class="badge ${CLAIM_BADGE[r.status]}">${esc(r.status)}</span></div>
+    <div class="claim-note small">${clipLabel(r.clip, false)}</div>${quoted(r.clip, r.quote)}${buttons}</article>`;
+}
+
+function claimsBox() {
+  const sec = document.getElementById("claims-sec"), nav = document.getElementById("claims-nav");
+  sec.hidden = nav.hidden = !(S.claim_review && S.claim_rows && S.claim_rows.length);
+  if (sec.hidden) return;
+  const order = {suggested: 0, approved: 1, rejected: 2}, rows = [...S.claim_rows].sort((a, b) => order[a.status] - order[b.status]);
+  const n = (st) => S.claim_rows.filter((r) => r.status === st).length;
+  document.getElementById("claims-intro").textContent = `${n("suggested")} suggested, ${n("approved")} approved, ${n("rejected")} rejected. Only approved claims count in Withdraw. The marked words are the part of the post's caption each claim rests on.`;
+  document.getElementById("claims").innerHTML = rows.map(claimCard).join("");
+}
+
 function withdrawBox() {
   const box = document.getElementById("withdraw");
   if (!S.claims) {
@@ -268,7 +303,9 @@ function withdrawBox() {
   const keep = S.recordings.find((r) => r.members.includes(wClip)) || S.recordings[0];
   wClip = keep.members[0];
   const opts = S.recordings.map((r) => `<option value="${esc(r.members[0])}" ${r === keep ? "selected" : ""}>${esc(r.id)} (${esc(r.status)}): ${r.members.map(nm).join(", ")}</option>`).join("");
-  box.innerHTML = `<div class="card"><label>Withdraw recording <select id="wsel">${opts}</select></label><div id="wbody" aria-live="polite"></div></div>`;
+  const pending = S.claim_review ? S.claim_rows.filter((r) => r.status === "suggested").length : 0;
+  const note = pending ? `<p class="small muted">${pending} suggested claim row${pending === 1 ? " is" : "s are"} not counted until approved (see Claims to review).</p>` : "";
+  box.innerHTML = `<div class="card"><label>Withdraw recording <select id="wsel">${opts}</select></label>${note}<div id="wbody" aria-live="polite"></div></div>`;
   document.getElementById("wsel").addEventListener("change", (e) => { wClip = e.target.value; loadWithdraw(keepId(e.target.value)); });
   loadWithdraw(keep.id);
 }
@@ -353,6 +390,7 @@ function render() {
   document.getElementById("ver").innerHTML = ver.length ? ver.map(pairCard).join("") : `<p class="muted">The verifier has not moved any pair.</p>`;
   document.getElementById("recs").innerHTML = S.recordings.map(recCard).join("");
   const hand = S.pairs.filter((p) => p.decision && p.band !== "unresolved");
+  claimsBox();
   withdrawBox();
   resultsBox();
   const dismissed = Object.entries(S.clip_decisions).filter(([, d]) => d.action === "dismiss_compilation");
@@ -363,10 +401,11 @@ function render() {
 }
 
 async function decide(button) {
-  const card = button.closest("[data-pair],[data-clip]");
+  const card = button.closest("[data-pair],[data-claim],[data-clip]");
   const input = card.querySelector("input");
   const body = {action: button.dataset.action, note: input ? input.value : ""};
   if (card.dataset.pair) body.pair = card.dataset.pair; else body.clip = card.dataset.clip;
+  if (card.dataset.claim) body.claim = card.dataset.claim;
   const buttons = card.querySelectorAll("button");
   buttons.forEach((b) => (b.disabled = true));
   try {
