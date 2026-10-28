@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="mode" content="live">
 <title>IndexReel clip wall</title>
 <style>
 :root {
@@ -56,10 +57,12 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
 .claims { margin: 4px 0 12px; padding-left: 20px; }
 .claims li { margin: 2px 0; }
 .lost-h { color: var(--lost); }
+#recorded { background: var(--warn-bg); border-bottom: 1px solid var(--line); padding: 8px 16px; text-align: center; font-weight: 600; }
 #disclaimer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); padding: 10px 16px; text-align: center; font-weight: 600; }
 </style>
 </head>
 <body>
+<div id="recorded" hidden>This is a recorded run. Decisions are shown, not editable, and nothing you click here is saved.</div>
 <header>
   <h1>IndexReel clip wall</h1>
   <div id="runinfo" class="muted small"></div>
@@ -71,7 +74,9 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
   <section aria-labelledby="h-hand"><h2 id="h-hand">Decided by hand</h2><div id="hand"></div></section>
 </main>
 <div id="disclaimer" role="note">This shows which clips come from the same recording. It does not say whether anything is true or false.</div>
+<!--DATA-->
 <script>
+const RECORDED = document.querySelector('meta[name="mode"]').content === "recorded";
 let S = null, wClip = "";
 const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const num = (x, d = 2) => Number(x).toFixed(d);
@@ -88,7 +93,7 @@ function evidence(p) {
   if (!p.evidence) return `<div class="noimg muted small">no evidence image for this pair</div>`;
   const src = p.evidence.split("/").map(encodeURIComponent).join("/");
   const rows = p.evidence_times.map(([ta, tb]) => `<tr><td>${esc(ta)} s</td><td>${esc(tb)} s</td></tr>`).join("");
-  return `<img src="/${src}" alt="aligned frames of ${esc(p.a)} and ${esc(p.b)}">
+  return `<img src="${src}" alt="aligned frames of ${esc(p.a)} and ${esc(p.b)}">
     <table class="times"><tr><th>${esc(p.a)}</th><th>${esc(p.b)}</th></tr>${rows}</table>`;
 }
 
@@ -112,13 +117,13 @@ function pairCard(p) {
       <div>${meter(p)}
         <div class="small muted">${esc(p.a)} ${num(p.a_span[0], 1)}–${num(p.a_span[1], 1)} s · ${esc(p.b)} ${num(p.b_span[0], 1)}–${num(p.b_span[1], 1)} s · offset ${off} s${mirrored}</div>
         ${verify(p)}${note}
-        <div class="actions">
+        ${RECORDED ? "" : `<div class="actions">
           <input type="text" aria-label="Note for ${esc(p.a)} and ${esc(p.b)}" placeholder="Note (optional)" maxlength="500">
           <button class="yes" data-action="approve_merge" ${p.band === "merged" ? "disabled" : ""}>Approve merge</button>
           <button class="no" data-action="split" ${p.band === "apart" ? "disabled" : ""}>Split</button>
           ${d ? `<button data-action="reset">Reset to matcher</button>` : ""}
         </div>
-        <div class="err" role="alert"></div>
+        <div class="err" role="alert"></div>`}
       </div>
     </div></article>`;
 }
@@ -159,9 +164,14 @@ const keepId = (clip) => S.recordings.find((r) => r.members.includes(clip)).id;
 async function loadWithdraw(id) {
   const body = document.getElementById("wbody");
   try {
-    const res = await fetch("/api/withdraw?recording=" + encodeURIComponent(id));
-    const out = await res.json();
-    if (!res.ok) throw new Error(out.error || res.statusText);
+    let out;
+    if (RECORDED) {
+      out = DATA.withdraw[id];
+    } else {
+      const res = await fetch("api/withdraw?recording=" + encodeURIComponent(id));
+      out = await res.json();
+      if (!res.ok) throw new Error(out.error || res.statusText);
+    }
     if (document.getElementById("wbody") !== body) return;
     body.innerHTML = withdrawLists(out);
   } catch (e) {
@@ -202,7 +212,7 @@ async function decide(button) {
   const buttons = card.querySelectorAll("button");
   buttons.forEach((b) => (b.disabled = true));
   try {
-    const res = await fetch("/api/decide", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const res = await fetch("api/decide", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
     const out = await res.json();
     if (!res.ok) throw new Error(out.error || res.statusText);
     S = out;
@@ -218,7 +228,9 @@ document.addEventListener("click", (e) => {
   if (b) decide(b);
 });
 
-fetch("/api/state").then((r) => r.json()).then((s) => { S = s; render(); })
+const DATA = RECORDED ? JSON.parse(document.getElementById("recorded-data").textContent) : null;
+document.getElementById("recorded").hidden = !RECORDED;
+(RECORDED ? Promise.resolve(DATA.state) : fetch("api/state").then((r) => r.json())).then((s) => { S = s; render(); })
   .catch((e) => { document.getElementById("runinfo").textContent = `Could not load the run: ${e.message}`; });
 </script>
 </body>

@@ -4,6 +4,7 @@ import csv
 import json
 import mimetypes
 import os
+import shutil
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -54,6 +55,33 @@ def withdraw_view(run, claims, recording):
     by_claim, text = withdraw.read_claims(claims)
     out = withdraw.withdraw(withdraw.run_recordings(run), by_claim, recording)
     return out | {"text": text}
+
+
+def export(run, out, claims=None):
+    """Write a read-only copy of the page to `out`: index.html with the run embedded, plus the evidence images.
+
+    Nothing here needs a server. Clip paths and the matching command are left out, and the clips themselves are not copied.
+    """
+    run, out = Path(run).resolve(), Path(out)
+    if out.exists() and any(out.iterdir()):
+        raise ValueError(f"{out} is not empty")
+    s = state(run, claims)
+    s["run"] = {k: s["run"][k] for k in ("n_clips", "sample", "created_utc", "thresholds", "localiser") if k in s["run"]}
+    s["clips"] = [{k: v for k, v in c.items() if k != "path"} for c in s["clips"]]
+    views = {r["id"]: withdraw_view(run, claims, r["id"]) for r in s["recordings"]} if claims else {}
+    frames = (run / "frames").resolve()
+    for p in s["pairs"]:
+        if p["evidence"]:
+            src = (run / p["evidence"]).resolve()
+            if not (src.is_file() and src.is_relative_to(frames)):
+                raise ValueError(f"evidence image of {p['id']} is not a file under frames/: {p['evidence']}")
+            (out / p["evidence"]).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, out / p["evidence"])
+    data = json.dumps({"state": s, "withdraw": views}).replace("</", "<\\/")  # "<\/" is still valid JSON, and cannot close the script tag
+    page = PAGE.read_text().replace('content="live"', 'content="recorded"')
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "index.html").write_text(page.replace("<!--DATA-->", f'<script type="application/json" id="recorded-data">{data}</script>'))
+    return out / "index.html"
 
 
 def state(run, claims=None):
@@ -149,6 +177,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m indexreel.wall", description="Open a run directory in a local browser page.")
     ap.add_argument("run", type=Path, help="run directory written by `indexreel match`")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--export", type=Path, metavar="DIR", help="write a read-only static copy to DIR instead of serving")
     ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text) for the withdraw panel")
     args = ap.parse_args(argv)
     for name in ("clips.json", "pairs.csv", "clusters.json", "run.json"):
@@ -156,6 +185,12 @@ def main(argv=None):
             ap.error(f"{args.run} has no {name}")
     if args.claims and not args.claims.is_file():
         ap.error(f"no claims file {args.claims}")
+    if args.export:
+        try:
+            print(f"wrote {export(args.run, args.export, args.claims)}")
+        except ValueError as e:
+            ap.error(str(e))
+        return
     server = make_server(args.run, args.port, args.claims)
     print(f"http://127.0.0.1:{server.server_address[1]}/  (Ctrl-C to stop)")
     try:

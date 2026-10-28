@@ -178,3 +178,54 @@ def test_http_withdraw_refuses_claims_citing_unknown_clips(run, tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def exported(run, tmp_path, claims=None):
+    out = tmp_path / "export"
+    wall.export(run, out, claims)
+    page = (out / "index.html").read_text()
+    data = json.loads(page.split('id="recorded-data">')[1].split("</script>")[0])
+    return out, page, data
+
+
+def test_export_is_a_static_read_only_copy_without_local_paths(run, tmp_path):
+    before = (run / "audit.jsonl").read_bytes()
+    out, page, data = exported(run, tmp_path)
+    assert 'content="recorded"' in page and DISCLAIMER in page
+    assert sorted(p.name for p in (out / "frames").iterdir()) == sorted(p.name for p in (run / "frames").iterdir())
+    assert [r["status"] for r in data["state"]["recordings"]][0] == "merged"  # the recorded decision is applied
+    assert data["state"]["pairs"][1]["decision"]["note"] == "same screen, same room"
+    assert all("path" not in c for c in data["state"]["clips"]) and "clips/a_orig.mp4" not in page
+    assert "indexreel match" not in page and "git_commit" not in page
+    assert (run / "audit.jsonl").read_bytes() == before and not (out / "audit.jsonl").exists()
+
+
+def test_export_embeds_the_withdraw_views_when_given_claims(run, tmp_path):
+    (tmp_path / "claims.csv").write_text(CLAIMS)
+    _, _, data = exported(run, tmp_path, tmp_path / "claims.csv")
+    assert data["state"]["claims"] is True
+    assert [e["claim_id"] for e in data["withdraw"]["r1"]["lost"]] == ["c1"]
+    assert set(data["withdraw"]) == {r["id"] for r in data["state"]["recordings"]}
+
+
+def test_export_cannot_be_closed_early_by_text_in_a_note(run, tmp_path):
+    wall.append_audit(run, "b_cam1~b_cam2", "split", "</script><b>x</b>")
+    _, page, data = exported(run, tmp_path)
+    assert page.count("</script>") == 2 and "</script><b>" not in page  # the data block and the page script
+    assert data["state"]["audit"][-1]["note"] == "</script><b>x</b>"
+
+
+def test_export_refuses_a_full_directory_and_evidence_outside_frames(run, tmp_path):
+    (tmp_path / "full").mkdir()
+    (tmp_path / "full" / "keep.txt").write_text("x")
+    with pytest.raises(ValueError):
+        wall.export(run, tmp_path / "full")
+    (run / "pairs.csv").write_text((run / "pairs.csv").read_text().replace("frames/b_cam1~b_cam2.jpg", "audit.jsonl"))
+    with pytest.raises(ValueError):
+        wall.export(run, tmp_path / "out2")
+    assert not (tmp_path / "out2" / "index.html").exists()
+
+
+def test_the_live_page_still_has_its_buttons_and_the_recorded_page_marks_itself():
+    page = wall.PAGE.read_text()
+    assert 'content="live"' in page and "RECORDED ?" in page and "<!--DATA-->" in page
