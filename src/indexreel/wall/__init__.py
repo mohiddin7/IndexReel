@@ -15,7 +15,30 @@ from indexreel import cluster, withdraw
 
 ACTIONS = {"approve_merge", "split", "reset"}
 PAGE = Path(__file__).with_name("index.html")
+RESULTS = Path(__file__).resolve().parents[3] / "eval" / "results.json"  # frozen bars and measurements, shown read-only
 _audit_lock = threading.Lock()
+
+
+def wilson(k, n, z=1.96):
+    """95% Wilson score interval for k of n."""
+    p, d = k / n, 1 + z * z / n
+    c, h = (p + z * z / (2 * n)) / d, z * (p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5 / d
+    return max(0.0, c - h), min(1.0, c + h)
+
+
+def read_results(path):
+    """Rows of eval/results.json with their status and interval worked out, so a bar and a count cannot disagree."""
+    rows = json.loads(Path(path).read_text())["rows"]
+    for r in rows:
+        k, n = r.get("k"), r.get("n")
+        if k is None:
+            r["status"] = r.get("status", "NOT RUN")
+        elif r.get("bar_op"):
+            r["status"] = "PASS" if (k >= r["bar_k"] if r["bar_op"] == ">=" else k <= r["bar_k"]) else "FAIL"
+        else:
+            r["status"] = r.get("status", "REPORTED")
+        r["ci"] = [round(x, 4) for x in wilson(k, n)] if k is not None and n else None
+    return rows
 
 
 def read_pairs(run):
@@ -57,7 +80,7 @@ def withdraw_view(run, claims, recording):
     return out | {"text": text}
 
 
-def export(run, out, claims=None):
+def export(run, out, claims=None, results=None):
     """Write a read-only copy of the page to `out`: index.html with the run embedded, plus the evidence images.
 
     Nothing here needs a server. Clip paths and the matching command are left out, and the clips themselves are not copied.
@@ -65,7 +88,7 @@ def export(run, out, claims=None):
     run, out = Path(run).resolve(), Path(out)
     if out.exists() and any(out.iterdir()):
         raise ValueError(f"{out} is not empty")
-    s = state(run, claims)
+    s = state(run, claims, results)
     s["run"] = {k: s["run"][k] for k in ("n_clips", "sample", "created_utc", "thresholds", "localiser") if k in s["run"]}
     s["clips"] = [{k: v for k, v in c.items() if k != "path"} for c in s["clips"]]
     views = {r["id"]: withdraw_view(run, claims, r["id"]) for r in s["recordings"]} if claims else {}
@@ -84,7 +107,7 @@ def export(run, out, claims=None):
     return out / "index.html"
 
 
-def state(run, claims=None):
+def state(run, claims=None, results=None):
     """Everything the page draws: pairs with their computed and current band, and recordings with human decisions applied."""
     run = Path(run)
     clips = json.loads((run / "clips.json").read_text())["clips"]
@@ -102,6 +125,8 @@ def state(run, claims=None):
     pairs = []
     for r in rows:
         offset = float(r["offset_s"])
+        core = [[float(r[a]), float(r[b])] for a, b in (("core_a_start_s", "core_a_end_s"), ("core_b_start_s", "core_b_end_s"))
+                if r.get(a) and r.get(b)]  # where the two clips really match; absent in older runs
         times = [float(t) for t in r["evidence_a_s"].split(";")] if r["evidence_a_s"] else []
         pairs.append({
             "id": r["pair_id"], "a": r["a"], "b": r["b"], "score": float(r["score"]), "aligned": float(r["aligned"]),
@@ -109,10 +134,10 @@ def state(run, claims=None):
             "a_span": [float(r["a_start_s"]), float(r["a_end_s"])], "b_span": [float(r["b_start_s"]), float(r["b_end_s"])],
             "matcher": r["band"], "computed": computed[r["pair_id"]],
             "band": "partial" if current[r["pair_id"]] != "apart" and {r["a"], r["b"]} & compilations else current[r["pair_id"]],
-            "decision": by_hand.get(r["pair_id"]),
+            "core": core if len(core) == 2 else None, "decision": by_hand.get(r["pair_id"]),
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
-    return {"run": meta, "claims": claims is not None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "audit": audit}
+    return {"run": meta, "claims": claims is not None, "results": read_results(results) if results else None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "audit": audit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -142,7 +167,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self.reply(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         if path == "/api/state":
-            return self.reply(200, state(run, self.server.claims))
+            return self.reply(200, state(run, self.server.claims, self.server.results))
         if path == "/api/withdraw":
             try:
                 return self.reply(200, withdraw_view(run, self.server.claims, parse_qs(urlsplit(self.path).query).get("recording", [""])[0]))
@@ -166,12 +191,13 @@ class Handler(BaseHTTPRequestHandler):
             append_audit(self.server.run, body["pair"], body["action"], body.get("note", ""))
         except (ValueError, KeyError, TypeError) as e:
             return self.reply(400, {"error": str(e)})
-        self.reply(200, state(self.server.run, self.server.claims))
+        self.reply(200, state(self.server.run, self.server.claims, self.server.results))
 
 
-def make_server(run, port=0, claims=None):
+def make_server(run, port=0, claims=None, results=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.run = Path(run).resolve()
+    server.results = Path(results).resolve() if results else None
     server.claims = Path(claims).resolve() if claims else None  # claims sheet for the withdraw panel, read on each request
     return server
 
@@ -180,21 +206,24 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m indexreel.wall", description="Open a run directory in a local browser page.")
     ap.add_argument("run", type=Path, help="run directory written by `indexreel match`")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--results", type=Path, default=RESULTS if RESULTS.is_file() else None, help="results JSON shown in the Results section (default: eval/results.json)")
     ap.add_argument("--export", type=Path, metavar="DIR", help="write a read-only static copy to DIR instead of serving")
     ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text) for the withdraw panel")
     args = ap.parse_args(argv)
     for name in ("clips.json", "pairs.csv", "clusters.json", "run.json"):
         if not (args.run / name).is_file():
             ap.error(f"{args.run} has no {name}")
+    if args.results and not args.results.is_file():
+        ap.error(f"no results file {args.results}")
     if args.claims and not args.claims.is_file():
         ap.error(f"no claims file {args.claims}")
     if args.export:
         try:
-            print(f"wrote {export(args.run, args.export, args.claims)}")
+            print(f"wrote {export(args.run, args.export, args.claims, args.results)}")
         except ValueError as e:
             ap.error(str(e))
         return
-    server = make_server(args.run, args.port, args.claims)
+    server = make_server(args.run, args.port, args.claims, args.results)
     print(f"http://127.0.0.1:{server.server_address[1]}/  (Ctrl-C to stop)")
     try:
         server.serve_forever()

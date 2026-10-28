@@ -278,3 +278,65 @@ def test_withdraw_view_names_the_lost_and_the_remaining_stretches_of_a_compilati
 def test_the_page_words_for_compilation_spans_are_there():
     page = wall.PAGE.read_text()
     assert "contains footage of" in page and "still supports it over" in page
+
+
+def test_wilson_matches_the_intervals_written_in_the_eval_files():
+    lo, hi = wall.wilson(48, 48)
+    assert (round(lo, 2), round(hi, 2)) == (0.93, 1.00)
+    lo, hi = wall.wilson(2, 1080)
+    assert (round(lo, 4), round(hi, 4)) == (0.0005, 0.0067)
+    assert round(wall.wilson(0, 1440)[1], 4) == 0.0027
+    assert [round(x, 2) for x in wall.wilson(4, 4)] == [0.51, 1.0] and [round(x, 2) for x in wall.wilson(1, 4)] == [0.05, 0.70]
+
+
+def test_results_status_comes_from_the_count_and_the_bar_not_from_the_file(tmp_path):
+    rows = [{"label": "a", "k": 4, "n": 4, "bar_op": ">=", "bar_k": 3, "status": "FAIL"},
+            {"label": "b", "k": 1, "n": 4, "bar_op": ">=", "bar_k": 3},
+            {"label": "c", "k": 0, "n": 9, "bar_op": "<=", "bar_k": 0},
+            {"label": "d", "k": 2, "n": 9, "bar_op": "<=", "bar_k": 0},
+            {"label": "e", "k": 5, "n": 9},
+            {"label": "f"}, {"label": "g", "status": "FAIL"}]
+    (tmp_path / "r.json").write_text(json.dumps({"version": 1, "rows": rows}))
+    out = wall.read_results(tmp_path / "r.json")
+    assert [r["status"] for r in out] == ["PASS", "FAIL", "PASS", "FAIL", "REPORTED", "NOT RUN", "FAIL"]
+    assert out[4]["ci"] and out[5]["ci"] is None
+
+
+def test_the_results_file_in_eval_is_consistent_and_keeps_the_failures():
+    root = Path(__file__).resolve().parents[1]
+    rows = wall.read_results(wall.RESULTS)
+    assert all((root / r["source"]).is_file() for r in rows)  # every row names a file that exists
+    status = {r["label"]: r["status"] for r in rows}
+    assert status["SAM 3.1, simulated re-film recovered"] == "FAIL"
+    assert status["Dev fixture recordings unchanged by the rule"] == "FAIL"
+    assert status["Recordings mixing families after approving the correct links"] == "FAIL"
+    assert [r["status"] for r in rows if r["group"].startswith("Held-out run 1")] == ["FAIL", "PASS"]
+    assert {r["status"] for r in rows if r["group"].startswith("Held-out run 2")} == {"NOT RUN"}
+
+
+def test_results_reach_the_state_the_server_and_the_export(run, tmp_path):
+    assert wall.state(run)["results"] is None
+    s = wall.state(run, results=wall.RESULTS)
+    assert len(s["results"]) == len(wall.read_results(wall.RESULTS))
+    srv = wall.make_server(run, results=wall.RESULTS)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert len(json.loads(call(srv, "GET", "/api/state")[1])["results"]) == len(s["results"])
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    _, _, data = exported(run, tmp_path)
+    assert data["state"]["results"] is None
+    wall.export(run, tmp_path / "with", results=wall.RESULTS)
+    page = (tmp_path / "with" / "index.html").read_text()
+    assert "eval/gate-result.md" in page and 'id="h-res"' in page
+
+
+def test_pairs_carry_the_core_span_when_the_run_has_one_and_the_page_shows_the_history(run):
+    assert wall.state(run)["pairs"][0]["core"] == [[0.0, 20.0], [0.0, 20.0]]
+    older = [line.split(",")[:-4] for line in (run / "pairs.csv").read_text().splitlines()]  # a run made before the core columns
+    (run / "pairs.csv").write_text("\n".join(",".join(r) for r in older) + "\n")
+    assert all(p["core"] is None for p in wall.state(run)["pairs"])
+    page = wall.PAGE.read_text()
+    assert "History" in page and "The verifier changed these" in page and "matching core" in page
+    assert "experimental flag" in page

@@ -57,6 +57,17 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
 .claims { margin: 4px 0 12px; padding-left: 20px; }
 .claims li { margin: 2px 0; }
 .lost-h { color: var(--lost); }
+nav { margin: 6px 0 0; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
+.history { margin-top: 6px; }
+table.res { border-collapse: collapse; width: 100%; min-width: 640px; table-layout: fixed; font-size: 14px; }
+table.res th:nth-child(1) { width: 36%; } table.res th:nth-child(2) { width: 22%; } table.res th:nth-child(3) { width: 16%; }
+table.res th:nth-child(4) { width: 11%; } table.res th:nth-child(5) { width: 15%; }
+table.res td { overflow-wrap: anywhere; }
+table.res th, table.res td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.res th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.res-note { color: var(--muted); font-size: 12px; }
+.pass { color: var(--merged); } .fail { color: var(--lost); } .reported, .notrun { color: var(--muted); }
+.res-wrap { overflow-x: auto; }
 #recorded { background: var(--warn-bg); border-bottom: 1px solid var(--line); padding: 8px 16px; text-align: center; font-weight: 600; }
 #disclaimer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); padding: 10px 16px; text-align: center; font-weight: 600; }
 </style>
@@ -66,12 +77,15 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
 <header>
   <h1>IndexReel clip wall</h1>
   <div id="runinfo" class="muted small"></div>
+  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
 </header>
 <main>
   <section aria-labelledby="h-todo"><h2 id="h-todo">Needs a decision</h2><div id="todo"></div></section>
+  <section aria-labelledby="h-ver"><h2 id="h-ver">The verifier changed these</h2><p class="muted small">Pairs where the verifier's answer moved the band the matcher gave.</p><div id="ver"></div></section>
   <section aria-labelledby="h-recs"><h2 id="h-recs">Recordings</h2><div id="recs"></div></section>
   <section aria-labelledby="h-with"><h2 id="h-with">Withdraw a recording</h2><div id="withdraw"></div></section>
   <section aria-labelledby="h-hand"><h2 id="h-hand">Decided by hand</h2><div id="hand"></div></section>
+  <section aria-labelledby="h-res"><h2 id="h-res">Results</h2><div id="results"></div></section>
 </main>
 <div id="disclaimer" role="note">This shows which clips come from the same recording. It does not say whether anything is true or false.</div>
 <!--DATA-->
@@ -97,11 +111,11 @@ function evidence(p) {
     <table class="times"><tr><th>${esc(p.a)}</th><th>${esc(p.b)}</th></tr>${rows}</table>`;
 }
 
-function verify(p) {
-  const v = p.verify;
-  if (!v.verdict) return "";
-  const conf = v.confidence ? ` (confidence ${esc(v.confidence)})` : "";
-  return `<div class="small"><strong>Verifier:</strong> ${esc(v.verdict)}${conf}. ${esc(v.reason || "")}</div>`;
+function history(p) {
+  const v = p.verify, parts = [`Matcher: ${p.matcher} (aligned ${num(p.aligned)}, best-match ${num(p.score)})`];
+  if (v.verdict) parts.push(`Verifier: ${v.verdict}${v.confidence ? ` (confidence ${v.confidence})` : ""}${v.reason ? `: ${v.reason}` : ""}`);
+  if (p.decision) parts.push(`Person: ${p.decision.action === "approve_merge" ? "approved the merge" : "split the pair"}`);
+  return `<div class="small history"><strong>History</strong> ${parts.map(esc).join(" → ")}</div>`;
 }
 
 function pairCard(p) {
@@ -110,17 +124,20 @@ function pairCard(p) {
   const note = d && d.note ? `<div class="small muted">Your note: ${esc(d.note)}</div>` : "";
   const mirrored = p.mirrored ? " · one clip mirrored" : "";
   const off = (p.offset_s >= 0 ? "+" : "") + num(p.offset_s, 1);
+  const span = p.core
+    ? `matching core: ${esc(p.a)} ${num(p.core[0][0], 1)}–${num(p.core[0][1], 1)} s · ${esc(p.b)} ${num(p.core[1][0], 1)}–${num(p.core[1][1], 1)} s`
+    : `${esc(p.a)} ${num(p.a_span[0], 1)}–${num(p.a_span[1], 1)} s · ${esc(p.b)} ${num(p.b_span[0], 1)}–${num(p.b_span[1], 1)} s`;
   return `<article class="card" id="pair-${esc(p.id)}" data-pair="${esc(p.id)}">
     <div><strong>${esc(p.a)}</strong> ↔ <strong>${esc(p.b)}</strong> <span class="badge ${esc(p.band)}">${esc(p.band)}</span> ${hand}</div>
     <div class="pair">
       <div>${evidence(p)}</div>
       <div>${meter(p)}
-        <div class="small muted">${esc(p.a)} ${num(p.a_span[0], 1)}–${num(p.a_span[1], 1)} s · ${esc(p.b)} ${num(p.b_span[0], 1)}–${num(p.b_span[1], 1)} s · offset ${off} s${mirrored}</div>
-        ${verify(p)}${note}
+        <div class="small muted">${span} · offset ${off} s${mirrored}</div>
+        ${history(p)}${note}
         ${RECORDED ? "" : `<div class="actions">
           <input type="text" aria-label="Note for ${esc(p.a)} and ${esc(p.b)}" placeholder="Note (optional)" maxlength="500">
-          <button class="yes" data-action="approve_merge" ${p.band === "merged" ? "disabled" : ""}>Approve merge</button>
-          <button class="no" data-action="split" ${p.band === "apart" ? "disabled" : ""}>Split</button>
+          <button class="yes" data-action="approve_merge" ${d && d.action === "approve_merge" ? "disabled" : ""}>Approve merge</button>
+          <button class="no" data-action="split" ${d && d.action === "split" ? "disabled" : ""}>Split</button>
           ${d ? `<button data-action="reset">Reset to matcher</button>` : ""}
         </div>
         <div class="err" role="alert"></div>`}
@@ -140,7 +157,7 @@ function recCard(r) {
     ? `<div class="warn">Contradiction: ${r.conflicts.map(esc).join(", ")} ${r.conflicts.length > 1 ? "are" : "is"} apart although both clips are in this recording. Merging is not transitive; decide which pair is wrong.</div>` : "";
   const waiting = open ? `<div class="small muted">Waiting on: ${open}</div>` : "";
   const segs = (r.segments || []).map((g) => `<li>${esc(g.recording)} (${g.links.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}) over ${num(g.start_s, 1)} to ${num(g.end_s, 1)} s</li>`).join("");
-  const comp = segs ? `<div class="small">Compilation: this clip contains footage of other recordings, each over its own stretch.<ul class="claims">${segs}</ul></div>` : "";
+  const comp = segs ? `<div class="small">Compilation (experimental flag: the rule that finds these failed 2 of its 4 frozen test bars): this clip contains footage of other recordings, each over its own stretch.<ul class="claims">${segs}</ul></div>` : "";
   const linked = [...new Set((r.segments || []).flatMap((g) => g.links))];
   return `<article class="card"><div><strong>${esc(r.id)}</strong> <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
     <span class="muted small">${r.members.length} clip${r.members.length === 1 ? "" : "s"}</span></div>
@@ -202,14 +219,41 @@ function withdrawLists(out) {
     ${list("Unaffected", out.unaffected.map((id) => `<li><strong>${esc(id)}</strong>${text(id)}</li>`))}`;
 }
 
+function resultsBox() {
+  const rows = S.results;
+  if (!rows) {
+    document.getElementById("results").innerHTML = `<p class="muted">No results file was given.</p>`;
+    return;
+  }
+  const pct = (x, hi) => num(x, hi < 0.05 ? 4 : 2);  // 2/1080 needs 0.0005 to 0.0067, not 0.00 to 0.01
+  let group = "", out = "";
+  rows.forEach((r) => {
+    if (r.group !== group) {
+      if (group) out += `</tbody></table></div>`;
+      group = r.group;
+      out += `<h3>${esc(group)}</h3><div class="res-wrap"><table class="res"><thead><tr><th>Measured</th><th>Result</th><th>Bar</th><th>Verdict</th><th>File</th></tr></thead><tbody>`;
+    }
+    const value = r.result ? esc(r.result)
+      : r.k == null ? "not run yet"
+      : `<strong>${esc(r.k)}${r.n ? `/${esc(r.n)}` : ""}</strong>${r.ci ? ` <span class="res-note">95% ${pct(r.ci[0], r.ci[1])} to ${pct(r.ci[1], r.ci[1])}</span>` : ""}`;
+    const cls = r.status.toLowerCase().replace(" ", "");
+    out += `<tr><td>${esc(r.label)}${r.note ? `<div class="res-note">${esc(r.note)}</div>` : ""}</td><td>${value}</td><td>${esc(r.bar || "")}</td><td><span class="badge ${cls}">${esc(r.status)}</span></td><td class="res-note">${esc(r.source)}</td></tr>`;
+  });
+  document.getElementById("results").innerHTML = out + (group ? `</tbody></table></div>` : "") +
+    `<p class="res-note">Intervals are Wilson 95%. Copies are simulated or filmed by me; none of this is footage from the web.</p>`;
+}
+
 function render() {
   const run = S.run;
   document.getElementById("runinfo").textContent = `${run.n_clips} clips · ${run.sample} · made ${run.created_utc} · ${S.audit.length} human decision${S.audit.length === 1 ? "" : "s"} logged`;
   const todo = S.pairs.filter((p) => p.band === "unresolved");
   document.getElementById("todo").innerHTML = todo.length ? todo.map(pairCard).join("") : `<p class="muted">Nothing is waiting for a decision.</p>`;
+  const ver = S.pairs.filter((p) => p.matcher !== p.computed && !p.decision && p.band !== "unresolved");
+  document.getElementById("ver").innerHTML = ver.length ? ver.map(pairCard).join("") : `<p class="muted">The verifier has not moved any pair.</p>`;
   document.getElementById("recs").innerHTML = S.recordings.map(recCard).join("");
   const hand = S.pairs.filter((p) => p.decision && p.band !== "unresolved");
   withdrawBox();
+  resultsBox();
   document.getElementById("hand").innerHTML = hand.length ? hand.map(pairCard).join("") : `<p class="muted">No pair has been decided by hand yet.</p>`;
 }
 

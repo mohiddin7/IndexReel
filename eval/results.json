@@ -1,0 +1,24 @@
+{"version": 1,
+ "note": "One row per frozen bar or reported measurement. PASS and FAIL are computed from k, bar_op and bar_k when all three are present; Wilson 95% intervals are computed from k and n. Rows without k are not run yet or have no count.",
+ "rows": [
+  {"group": "Gate: SAM 3.1 against an OpenCV localiser (4 targets per transform)", "label": "SAM 3.1, picture-in-picture recovered", "k": 4, "n": 4, "bar": "at least 3 of 4", "bar_op": ">=", "bar_k": 3, "source": "eval/gate-result.md"},
+  {"group": "Gate: SAM 3.1 against an OpenCV localiser (4 targets per transform)", "label": "SAM 3.1, simulated re-film recovered", "k": 1, "n": 4, "bar": "at least 3 of 4", "bar_op": ">=", "bar_k": 3, "source": "eval/gate-result.md", "note": "No screen mask returned on 3 of the 4 re-films."},
+  {"group": "Gate: SAM 3.1 against an OpenCV localiser (4 targets per transform)", "label": "OpenCV control, picture-in-picture recovered", "k": 3, "n": 4, "bar": "no bar", "source": "eval/gate-result.md"},
+  {"group": "Gate: SAM 3.1 against an OpenCV localiser (4 targets per transform)", "label": "OpenCV control, simulated re-film recovered", "k": 4, "n": 4, "bar": "no bar", "source": "eval/gate-result.md"},
+
+  {"group": "Held-out run 1 (16 families, 48 versions, run once)", "label": "Pairs of different recordings joined", "k": 2, "n": 1080, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/report.md", "note": "Two recordings mix a target with its look-alike, both simulated re-films."},
+  {"group": "Held-out run 1 (16 families, 48 versions, run once)", "label": "Pairs of the same recording joined", "k": 48, "n": 48, "bar": "at least 40 of 48", "bar_op": ">=", "bar_k": 40, "source": "eval/report.md", "note": "The matcher alone joined 35 of 48."},
+
+  {"group": "Held-out run 2 (16 fresh families)", "label": "Pairs of different recordings joined", "bar": "0", "source": "eval/heldout2.md"},
+  {"group": "Held-out run 2 (16 fresh families)", "label": "Pairs of the same recording joined", "bar": "at least 40 of 48", "source": "eval/heldout2.md"},
+
+  {"group": "Compilations (frozen test: 24 compilations, 16 controls)", "label": "Compilations flagged, naming only their own families", "k": 19, "n": 24, "bar": "at least 18 of 24", "bar_op": ">=", "bar_k": 18, "source": "eval/compilation-result.md"},
+  {"group": "Compilations (frozen test: 24 compilations, 16 controls)", "label": "Recordings mixing families after approving the correct links", "k": 1, "bar": "0", "bar_op": "<=", "bar_k": 0, "result": "1 recording (T04 and N04); 0 without approvals", "source": "eval/compilation-result.md"},
+  {"group": "Compilations (frozen test: 24 compilations, 16 controls)", "label": "Controls flagged as compilations", "k": 0, "n": 16, "bar": "at most 1 of 16", "bar_op": "<=", "bar_k": 1, "source": "eval/compilation-result.md"},
+  {"group": "Compilations (frozen test: 24 compilations, 16 controls)", "label": "Dev fixture recordings unchanged by the rule", "status": "FAIL", "bar": "unchanged", "result": "0 of 276 pair bands changed; one recording split", "source": "eval/compilation-result.md"},
+
+  {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "SSCD ranks the true original first", "k": 96, "n": 96, "bar": "no bar", "source": "eval/refilm-h5-result.md"},
+  {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Muse Spark Open calls the true original the same recording", "k": 91, "n": 96, "bar": "at least 72 of 96", "bar_op": ">=", "bar_k": 72, "source": "eval/refilm-h5-result.md", "note": "180 px; misses are 'unsure' on dark static scenes."},
+  {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Muse Spark Open calls a different recording the same", "k": 0, "n": 1440, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/refilm-h5-result.md"},
+  {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Re-films of the held-out set (reported, no bar)", "bar": "no bar", "source": "eval/heldout.md"}
+ ]}
