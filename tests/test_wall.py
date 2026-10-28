@@ -690,3 +690,21 @@ def test_the_page_marks_the_quote_in_the_caption_and_warns_when_it_is_not_there(
     assert "Claims to review" in page and "approve_claim" in page and "reject_claim" in page and "reset_claim" in page
     assert "<mark>${esc(quote)}</mark>" in page and "The quote was not found in this post's caption" in page
     assert "not counted until approved" in page and "Only approved claims count in Withdraw" in page
+
+
+def test_the_page_and_the_terminal_count_the_same_claims(run, sheet, tmp_path):
+    from indexreel import withdraw
+    plain = tmp_path / "plain.csv"
+    plain.write_text(CLAIMS)
+    for f in (sheet, plain):
+        by_claim, text = withdraw.read_claims(f, log=lambda _: None)
+        rows, _ = wall.read_claim_rows(f)
+        mine = {}
+        for r in rows:
+            if r["status"] == "approved":
+                mine.setdefault(r["claim_id"], []).append(r["clip"])
+        assert mine == by_claim
+        out = wall.withdraw_view(run, f, "r1")
+        theirs = withdraw.withdraw(withdraw.run_recordings(run), by_claim, "r1")
+        assert {k: [e["claim_id"] for e in out[k]] for k in ("lost", "kept", "undecided")} == {k: [e["claim_id"] for e in theirs[k]] for k in ("lost", "kept", "undecided")}
+        assert out["unaffected"] == theirs["unaffected"]

@@ -107,7 +107,7 @@ def read_claim_rows(path):
         reviewed = "status" in (reader.fieldnames or [])
         rows = []
         for r in reader:
-            st = (r.get("status") or "").strip().lower() if reviewed else "approved"
+            st = r.get("status") or "" if reviewed else "approved"  # exact values, as indexreel.withdraw reads them
             rows.append({"clip": r["clip"], "claim_id": r["claim_id"], "claim_text": r.get("claim_text") or "",
                          "quote": r.get("quote") or "", "status": st if st in ("approved", "rejected") else "suggested" if reviewed else "approved"})
     return rows, reviewed
