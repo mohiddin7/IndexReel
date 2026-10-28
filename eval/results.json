@@ -20,5 +20,13 @@
   {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "SSCD ranks the true original first", "k": 96, "n": 96, "bar": "no bar", "source": "eval/refilm-h5-result.md"},
   {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Muse Spark Open calls the true original the same recording", "k": 91, "n": 96, "bar": "at least 72 of 96", "bar_op": ">=", "bar_k": 72, "source": "eval/refilm-h5-result.md", "note": "180 px; misses are 'unsure' on dark static scenes."},
   {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Muse Spark Open calls a different recording the same", "k": 0, "n": 1440, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/refilm-h5-result.md"},
-  {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Re-films of the held-out set (reported, no bar)", "bar": "no bar", "source": "eval/heldout.md"}
+  {"group": "Real phone re-films of a monitor (96 clips of 16 recordings, one phone, one room)", "label": "Re-films of the held-out set (reported, no bar)", "bar": "no bar", "source": "eval/heldout.md"},
+
+  {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Partial copies flagged as shared footage", "k": 11, "n": 16, "bar": "at least 80% (13 of 16)", "bar_op": ">=", "bar_k": 13, "source": "eval/partial-result.md", "note": "Experimental rule: the five misses fall back to the old joining."},
+
+  {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Flagged copies rejoined when every link is approved", "k": 0, "n": 11, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/partial-result.md"},
+
+  {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Full copies, trims, jump cuts and re-films demoted to shared footage", "k": 0, "n": 69, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/partial-result.md", "note": "22 fixtures, 8 trims, 7 jump cuts, 32 re-films."},
+
+  {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Recordings mixing two families", "k": 0, "bar": "0", "bar_op": "<=", "bar_k": 0, "result": "0", "source": "eval/partial-result.md"}
  ]}
