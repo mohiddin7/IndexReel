@@ -128,3 +128,53 @@ def test_http_refuses_foreign_host_names(server, run):
     assert call(server, "GET", "/api/state", headers={"Host": "evil.example"})[0] == 403
     assert call(server, "POST", "/api/decide", json.dumps({"pair": "b_cam1~b_cam2", "action": "split"}), head)[0] == 403
     assert len(lines(run)) == 1
+
+
+CLAIMS = """clip,claim_id,claim_text
+a_orig,c1,only on the first recording
+a_orig,c2,seen twice
+c_alone,c2,seen twice
+b_cam1,c3,both cameras
+b_cam2,c3,both cameras
+c_alone,c4,elsewhere
+"""
+
+
+@pytest.fixture
+def claims_server(run, tmp_path):
+    (tmp_path / "claims.csv").write_text(CLAIMS)
+    srv = wall.make_server(run, claims=tmp_path / "claims.csv")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield srv
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_withdraw_view_sorts_claims_with_the_audit_applied(run, tmp_path):
+    (tmp_path / "claims.csv").write_text(CLAIMS)
+    out = wall.withdraw_view(run, tmp_path / "claims.csv", "r1")  # r1 is merged because the audit approved a_copy~a_refilm
+    assert [e["claim_id"] for e in out["lost"]] == ["c1"] and [e["claim_id"] for e in out["kept"]] == ["c2"]
+    assert out["unaffected"] == ["c3", "c4"] and out["text"]["c1"] == "only on the first recording"
+    out = wall.withdraw_view(run, tmp_path / "claims.csv", "r2")
+    assert [(e["claim_id"], e["tied_by"]) for e in out["undecided"]] == [("c3", ["b_cam1~b_cam2"])]
+
+
+def test_http_withdraw_and_its_errors(claims_server, server):
+    status, body = call(claims_server, "GET", "/api/withdraw?recording=r1")
+    assert status == 200 and [e["claim_id"] for e in json.loads(body)["lost"]] == ["c1"]
+    assert json.loads(call(claims_server, "GET", "/api/state")[1])["claims"] is True
+    assert call(claims_server, "GET", "/api/withdraw?recording=r99")[0] == 400
+    assert call(claims_server, "GET", "/api/withdraw")[0] == 400
+    assert call(server, "GET", "/api/withdraw?recording=r1")[0] == 400  # no claims file given
+    assert json.loads(call(server, "GET", "/api/state")[1])["claims"] is False
+
+
+def test_http_withdraw_refuses_claims_citing_unknown_clips(run, tmp_path):
+    (tmp_path / "claims.csv").write_text("clip,claim_id\nnot_a_clip,x\n")
+    srv = wall.make_server(run, claims=tmp_path / "claims.csv")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert call(srv, "GET", "/api/withdraw?recording=r1")[0] == 400
+    finally:
+        srv.shutdown()
+        srv.server_close()

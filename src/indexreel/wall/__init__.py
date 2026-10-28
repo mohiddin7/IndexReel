@@ -8,9 +8,9 @@ import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
-from indexreel import cluster
+from indexreel import cluster, withdraw
 
 ACTIONS = {"approve_merge", "split", "reset"}
 PAGE = Path(__file__).with_name("index.html")
@@ -47,7 +47,16 @@ def append_audit(run, pair, action, note=""):
     return entry
 
 
-def state(run):
+def withdraw_view(run, claims, recording):
+    """Claims that lose, keep or may keep video support when `recording` is withdrawn (rules in indexreel.withdraw)."""
+    if claims is None:
+        raise ValueError("no claims file: start the wall with --claims")
+    by_claim, text = withdraw.read_claims(claims)
+    out = withdraw.withdraw(withdraw.run_recordings(run), by_claim, recording)
+    return out | {"text": text}
+
+
+def state(run, claims=None):
     """Everything the page draws: pairs with their computed and current band, and recordings with human decisions applied."""
     run = Path(run)
     clips = json.loads((run / "clips.json").read_text())["clips"]
@@ -72,7 +81,7 @@ def state(run):
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
     recs = cluster.recordings([c["id"] for c in clips], [(p["id"], p["a"], p["b"], p["band"]) for p in pairs])
-    return {"run": meta, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "audit": audit}
+    return {"run": meta, "claims": claims is not None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "audit": audit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -102,7 +111,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self.reply(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         if path == "/api/state":
-            return self.reply(200, state(run))
+            return self.reply(200, state(run, self.server.claims))
+        if path == "/api/withdraw":
+            try:
+                return self.reply(200, withdraw_view(run, self.server.claims, parse_qs(urlsplit(self.path).query).get("recording", [""])[0]))
+            except (ValueError, KeyError, OSError) as e:
+                return self.reply(400, {"error": str(e)})
         if path.startswith("/frames/"):
             f, root = (run / path[1:]).resolve(), (run / "frames").resolve()
             if f.is_file() and f.is_relative_to(root):
@@ -121,12 +135,13 @@ class Handler(BaseHTTPRequestHandler):
             append_audit(self.server.run, body["pair"], body["action"], body.get("note", ""))
         except (ValueError, KeyError, TypeError) as e:
             return self.reply(400, {"error": str(e)})
-        self.reply(200, state(self.server.run))
+        self.reply(200, state(self.server.run, self.server.claims))
 
 
-def make_server(run, port=0):
+def make_server(run, port=0, claims=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.run = Path(run).resolve()
+    server.claims = Path(claims).resolve() if claims else None  # claims sheet for the withdraw panel, read on each request
     return server
 
 
@@ -134,11 +149,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m indexreel.wall", description="Open a run directory in a local browser page.")
     ap.add_argument("run", type=Path, help="run directory written by `indexreel match`")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text) for the withdraw panel")
     args = ap.parse_args(argv)
     for name in ("clips.json", "pairs.csv", "clusters.json", "run.json"):
         if not (args.run / name).is_file():
             ap.error(f"{args.run} has no {name}")
-    server = make_server(args.run, args.port)
+    if args.claims and not args.claims.is_file():
+        ap.error(f"no claims file {args.claims}")
+    server = make_server(args.run, args.port, args.claims)
     print(f"http://127.0.0.1:{server.server_address[1]}/  (Ctrl-C to stop)")
     try:
         server.serve_forever()

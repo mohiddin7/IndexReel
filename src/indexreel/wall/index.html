@@ -8,13 +8,13 @@
 :root {
   --bg: #f6f6f3; --card: #ffffff; --ink: #1d1f23; --muted: #5a606b; --line: #d6d8dd;
   --merged: #1f6f43; --unresolved: #9a5b00; --apart: #5a606b; --single: #3b4a6b; --hand: #5b3fa0;
-  --accent: #1b4fb8; --warn-bg: #fff3d6;
+  --accent: #1b4fb8; --warn-bg: #fff3d6; --lost: #b3261e;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #15171a; --card: #1e2125; --ink: #e8e9ec; --muted: #a2a8b3; --line: #343941;
     --merged: #5fcf94; --unresolved: #f0b04a; --apart: #a2a8b3; --single: #8fa6d8; --hand: #b9a4f2;
-    --accent: #7fa6ff; --warn-bg: #3a3020;
+    --accent: #7fa6ff; --warn-bg: #3a3020; --lost: #ff8a80;
   }
 }
 * { box-sizing: border-box; }
@@ -50,7 +50,11 @@ button.yes { border-color: var(--merged); } button.no { border-color: var(--apar
 input[type=text] { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); flex: 1 1 160px; min-width: 0; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .warn { background: var(--warn-bg); border-radius: 6px; padding: 6px 10px; margin: 8px 0; font-size: 13px; }
-.err { color: #b3261e; font-size: 13px; }
+.err { color: var(--lost); font-size: 13px; }
+select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 100%; }
+.claims { margin: 4px 0 12px; padding-left: 20px; }
+.claims li { margin: 2px 0; }
+.lost-h { color: var(--lost); }
 #disclaimer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); padding: 10px 16px; text-align: center; font-weight: 600; }
 </style>
 </head>
@@ -62,11 +66,12 @@ input[type=text] { font: inherit; padding: 5px 8px; border: 1px solid var(--line
 <main>
   <section aria-labelledby="h-todo"><h2 id="h-todo">Needs a decision</h2><div id="todo"></div></section>
   <section aria-labelledby="h-recs"><h2 id="h-recs">Recordings</h2><div id="recs"></div></section>
+  <section aria-labelledby="h-with"><h2 id="h-with">Withdraw a recording</h2><div id="withdraw"></div></section>
   <section aria-labelledby="h-hand"><h2 id="h-hand">Decided by hand</h2><div id="hand"></div></section>
 </main>
 <div id="disclaimer" role="note">This shows which clips come from the same recording. It does not say whether anything is true or false.</div>
 <script>
-let S = null;
+let S = null, wClip = "";
 const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const num = (x, d = 2) => Number(x).toFixed(d);
 const pairById = () => Object.fromEntries(S.pairs.map((p) => [p.id, p]));
@@ -134,6 +139,51 @@ function recCard(r) {
     ${r.evidence_pairs.map((id) => pairCard(P[id])).join("")}</article>`;
 }
 
+function withdrawBox() {
+  const box = document.getElementById("withdraw");
+  if (!S.claims) {
+    box.innerHTML = `<p class="muted">No claims sheet. Start the wall with <code>--claims claims.csv</code> to see which claims lose their video support.</p>`;
+    return;
+  }
+  const keep = S.recordings.find((r) => r.members.includes(wClip)) || S.recordings[0];
+  wClip = keep.members[0];
+  const opts = S.recordings.map((r) => `<option value="${esc(r.members[0])}" ${r === keep ? "selected" : ""}>${esc(r.id)} (${esc(r.status)}): ${r.members.map(esc).join(", ")}</option>`).join("");
+  box.innerHTML = `<div class="card"><label>Withdraw recording <select id="wsel">${opts}</select></label><div id="wbody" aria-live="polite"></div></div>`;
+  document.getElementById("wsel").addEventListener("change", (e) => { wClip = e.target.value; loadWithdraw(keepId(e.target.value)); });
+  loadWithdraw(keep.id);
+}
+
+const keepId = (clip) => S.recordings.find((r) => r.members.includes(clip)).id;
+
+async function loadWithdraw(id) {
+  const body = document.getElementById("wbody");
+  try {
+    const res = await fetch("/api/withdraw?recording=" + encodeURIComponent(id));
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error || res.statusText);
+    if (document.getElementById("wbody") !== body) return;
+    body.innerHTML = withdrawLists(out);
+  } catch (e) {
+    body.innerHTML = `<p class="err" role="alert">${esc(e.message)}</p>`;
+  }
+}
+
+function withdrawLists(out) {
+  const w = out.withdrawn, text = (id) => (out.text[id] ? ` ${esc(out.text[id])}` : "");
+  const item = (e) => {
+    const left = e.remaining.length ? ` → still cited in ${e.remaining.map(esc).join(", ")}` : "";
+    const tied = e.tied_by.length ? `; open pairs ${e.tied_by.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}` : "";
+    return `<li><strong>${esc(e.claim_id)}</strong>${text(e.claim_id)}${left}${tied}</li>`;
+  };
+  const list = (title, rows, cls = "") => `<h3 class="${cls}">${title} (${rows.length})</h3>${rows.length ? `<ul class="claims">${rows.join("")}</ul>` : `<p class="muted small">none</p>`}`;
+  const open = w.unresolved_pairs.length ? `<div class="warn">Pairs still undecided against this recording: ${w.unresolved_pairs.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}.</div>` : "";
+  return `<p>Withdrawn: <strong>${esc(w.id)}</strong> (${esc(w.status)}), clips ${w.members.map(esc).join(", ")}</p>${open}
+    ${list("Lose all video support", out.lost.map(item), "lost-h")}
+    ${list("Keep some video support", out.kept.map(item))}
+    ${list("Undecided: the rest may be the same recording", out.undecided.map(item))}
+    ${list("Unaffected", out.unaffected.map((id) => `<li><strong>${esc(id)}</strong>${text(id)}</li>`))}`;
+}
+
 function render() {
   const run = S.run;
   document.getElementById("runinfo").textContent = `${run.n_clips} clips · ${run.sample} · made ${run.created_utc} · ${S.audit.length} human decision${S.audit.length === 1 ? "" : "s"} logged`;
@@ -141,6 +191,7 @@ function render() {
   document.getElementById("todo").innerHTML = todo.length ? todo.map(pairCard).join("") : `<p class="muted">Nothing is waiting for a decision.</p>`;
   document.getElementById("recs").innerHTML = S.recordings.map(recCard).join("");
   const hand = S.pairs.filter((p) => p.decision && p.band !== "unresolved");
+  withdrawBox();
   document.getElementById("hand").innerHTML = hand.length ? hand.map(pairCard).join("") : `<p class="muted">No pair has been decided by hand yet.</p>`;
 }
 
