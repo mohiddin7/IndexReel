@@ -40,3 +40,7 @@ A bar 1 failure is a FAIL whatever else happens.
 ## Limits
 
 One person, one phone, one screen and one room. The 16 originals come in 8 target and look-alike pairs. Re-films of one original are not independent of each other. The platforms' processing on the day of upload is whatever it was then. Sound is the screen's speaker recorded by the phone, and the final2 sources may be silent. The arm tests the shipped pipeline on realistic copies of fresh recordings, not on copies found in the wild.
+
+## Addendum A (Oct 28, before any re-film exists)
+
+All takes go through WhatsApp only (a licensing choice made before filming). The manifest's `platform` column is therefore `whatsapp` on every row, and the per-platform breakdown has one level. Nothing else changes. The run uses a detached checkout of `23614a4` for matching, verifying and scoring (`cluster.resolve`), because later commits changed how a detected compilation is counted; with no compilation detected, the two give identical output.
