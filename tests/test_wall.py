@@ -340,3 +340,15 @@ def test_pairs_carry_the_core_span_when_the_run_has_one_and_the_page_shows_the_h
     page = wall.PAGE.read_text()
     assert "History" in page and "The verifier changed these" in page and "matching core" in page
     assert "experimental flag" in page
+
+
+def test_clip_sources_reach_the_page_data_and_the_export(run, tmp_path):
+    clips = json.loads((run / "clips.json").read_text())
+    clips["clips"][0]["source"] = {"platform": "x", "url": "https://x.com/someone/status/1", "account": "@someone",
+                                   "posted_at": "2026-10-20T10:00:00Z", "caption": "look at this </script>"}
+    (run / "clips.json").write_text(json.dumps(clips))
+    out, page, data = exported(run, tmp_path)
+    assert data["state"]["clips"][0]["source"]["account"] == "@someone" and "path" not in data["state"]["clips"][0]
+    assert page.count("</script>") == 2  # the caption cannot close the data block
+    html = wall.PAGE.read_text()
+    assert "postCard" in html and "safeUrl" in html and "noopener" in html

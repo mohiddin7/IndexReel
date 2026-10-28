@@ -59,6 +59,8 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
 .lost-h { color: var(--lost); }
 nav { margin: 6px 0 0; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
 .history { margin-top: 6px; }
+.post { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 320px; flex: 1 1 240px; font-size: 13px; }
+.post q { display: block; margin: 4px 0; quotes: none; overflow-wrap: anywhere; }
 table.res { border-collapse: collapse; width: 100%; min-width: 640px; table-layout: fixed; font-size: 14px; }
 table.res th:nth-child(1) { width: 36%; } table.res th:nth-child(2) { width: 22%; } table.res th:nth-child(3) { width: 16%; }
 table.res th:nth-child(4) { width: 11%; } table.res th:nth-child(5) { width: 15%; }
@@ -145,11 +147,22 @@ function pairCard(p) {
     </div></article>`;
 }
 
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "");
+
+function postCard(src, detail) {
+  const who = src.account ? `<strong>@${esc(String(src.account).replace(/^@/, ""))}</strong>` : "<strong>unknown account</strong>";
+  const meta = [src.platform, src.posted_at].filter(Boolean).map(esc).join(" · ");
+  const caption = src.caption ? `<q>${esc(String(src.caption).slice(0, 240))}</q>` : "";
+  const url = safeUrl(src.url), link = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : "";
+  return `<div class="post">${who} <span class="muted">${meta}</span>${caption}<div class="small">${link}</div><div class="small muted">${detail}</div></div>`;
+}
+
 function recCard(r) {
   const byId = Object.fromEntries(S.clips.map((c) => [c.id, c]));
   const chips = r.members.map((m) => {
     const c = byId[m], crop = c.crop && c.crop.method !== "none" ? ` · cropped (${esc(c.crop.method)})` : "";
-    return `<span class="chip">${esc(m)} · ${num(c.duration_s, 1)} s${crop}</span>`;
+    const detail = `${esc(m)} · ${num(c.duration_s, 1)} s${crop}`;
+    return c.source ? postCard(c.source, detail) : `<span class="chip">${detail}</span>`;
   }).join("");
   const P = pairById();
   const open = r.unresolved_pairs.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ");
@@ -245,7 +258,8 @@ function resultsBox() {
 
 function render() {
   const run = S.run;
-  document.getElementById("runinfo").textContent = `${run.n_clips} clips · ${run.sample} · made ${run.created_utc} · ${S.audit.length} human decision${S.audit.length === 1 ? "" : "s"} logged`;
+  const posts = S.clips.some((c) => c.source), n = S.clips.length;
+  document.getElementById("runinfo").textContent = `${n} ${posts ? "post" : "clip"}${n === 1 ? "" : "s"} → ${S.recordings.length} recording${S.recordings.length === 1 ? "" : "s"} · ${run.sample} · made ${run.created_utc} · ${S.audit.length} human decision${S.audit.length === 1 ? "" : "s"} logged`;
   const todo = S.pairs.filter((p) => p.band === "unresolved");
   document.getElementById("todo").innerHTML = todo.length ? todo.map(pairCard).join("") : `<p class="muted">Nothing is waiting for a decision.</p>`;
   const ver = S.pairs.filter((p) => p.matcher !== p.computed && !p.decision && p.band !== "unresolved");
