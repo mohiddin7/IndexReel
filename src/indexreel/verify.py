@@ -26,10 +26,11 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from indexreel import audio
+from indexreel import audio, cluster
 
 MODEL = "muse-spark-1.3"
 K = 4
+ROUNDS = 2  # full-fidelity re-ask rounds at most
 AUDIO_MATCH = 0.03  # between the highest negative (0.0066) and the lowest copy (0.105) in eval/audio-h2-result.md
 PRICE = {"input": 1.25, "cached": 0.15, "output": 4.25}  # USD per million tokens, Model API list prices
 VERDICT = {"yes": "same", "no": "different"}  # anything else, including no answer, is abstain
@@ -158,20 +159,17 @@ def chunks(pairs):
     return [(x, ys[i:i + K]) for x, ys in sorted(g.items()) for ys in [sorted(ys)] for i in range(0, len(ys), K)]
 
 
-def conflicts(rows, verdict, sound):
-    """Pairs to escalate: not called same, but both clips are linked to a third clip, or their sound matches."""
-    linked = defaultdict(set)
-    for r in rows:
-        if r["band"] == "merged" or verdict.get(r["pair_id"]) == "same":
-            linked[r["a"]].add(r["b"])
-            linked[r["b"]].add(r["a"])
+def to_reask(clip_ids, rows, verdict):
+    """Pairs to re-ask at full fidelity: in every would-be recording that holds a conflict (an apart pair inside it,
+    eval/run-format.md), each join edge and each pair the verifier itself made apart. A pair the matcher put apart
+    stays apart whatever the verifier says (cluster.effective_band), so it is never re-asked."""
+    eff = {r["pair_id"]: cluster.effective_band({"band": r["band"], "verify_verdict": verdict.get(r["pair_id"], "")}) for r in rows}
+    band = {r["pair_id"]: r["band"] for r in rows}
     out = set()
-    for ns in linked.values():
-        for x, y in itertools.combinations(sorted(ns), 2):
-            if verdict.get(f"{x}~{y}", "same") != "same":
-                out.add(f"{x}~{y}")
-    out |= {p for p, s in sound.items() if s is not None and s >= AUDIO_MATCH and verdict.get(p, "same") != "same"}
-    return sorted(out)
+    for rec in cluster.recordings(clip_ids, [(r["pair_id"], r["a"], r["b"], eff[r["pair_id"]]) for r in rows]):
+        if rec["conflicts"]:
+            out |= set(rec["evidence_pairs"]) | {p for p in rec["conflicts"] if band[p] != "apart"}
+    return out
 
 
 def sound_scores(paths, pairs):
@@ -180,13 +178,14 @@ def sound_scores(paths, pairs):
 
 
 def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
-    """Fill the verify columns of run/pairs.csv for every unresolved pair. Returns (spent now, cost of all answers)."""
+    """Fill the verify columns of run/pairs.csv for every merged or unresolved pair. Returns (spent now, cost of all answers)."""
     run = Path(run)
-    paths = {c["id"]: str((run / c["path"]).resolve()) for c in json.loads((run / "clips.json").read_text())["clips"]}
+    clips = json.loads((run / "clips.json").read_text())["clips"]
+    paths = {c["id"]: str((run / c["path"]).resolve()) for c in clips}
     with open(run / "pairs.csv", newline="") as f:
         reader = csv.DictReader(f)
         columns, rows = reader.fieldnames, list(reader)
-    todo = [r["pair_id"] for r in rows if r["band"] == "unresolved"]
+    todo = [r["pair_id"] for r in rows if r["band"] != "apart"]
     sound = sound_scores(paths, todo) if sound is None else sound
     spent, budget_hit = 0.0, False
 
@@ -206,7 +205,7 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
         cache.put(key, hit)
         return hit
 
-    answers, cost, detail = defaultdict(list), defaultdict(float), {}
+    answers, full, cost, detail = defaultdict(list), defaultdict(list), defaultdict(float), {}
     with ThreadPoolExecutor(workers) as ex:
         work = chunks([tuple(p.split("~")) for p in todo])
         for (anchor, cands), hit in zip(work, ex.map(lambda w: call("group", [w[0], *w[1]], judge.group), work)):
@@ -218,20 +217,28 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
                 cost[p] += hit["cost"] / len(cands)
                 detail[p] = (ent or {}).get("shared_detail")
     verdict = {p: VERDICT.get(a[0], "abstain") for p, a in answers.items()}
-    escalate = [p for p in conflicts(rows, verdict, sound) if p in answers]
-    with ThreadPoolExecutor(workers) as ex:
-        orders = [(p, ids) for p in escalate for ids in (p.split("~"), p.split("~")[::-1])]
-        for (p, _), hit in zip(orders, ex.map(lambda o: call("pair", o[1], judge.pair), orders)):
-            if hit is None:
-                continue
-            ans = hit["answer"] or {}
-            answers[p].append(ans.get("same_footage"))
-            cost[p] += hit["cost"]
-            detail[p] = ans.get("shared_detail") or ans.get("unsure_because") or detail.get(p)
-    for p in escalate:
-        full = answers[p][1:]
-        if full:  # eval/spark-h15.md: a yes in either order clears the conflict
-            verdict[p] = "same" if "yes" in full else "different" if full == ["no", "no"] else "abstain"
+
+    # the sound can only send a pair to the full judge; it never decides
+    reask = {p for p, s in sound.items() if s is not None and s >= AUDIO_MATCH and verdict.get(p, "same") != "same"}
+    for _ in range(ROUNDS):
+        reask = (reask | to_reask([c["id"] for c in clips], rows, verdict)) - set(full)
+        reask &= set(answers)
+        if not reask:
+            break
+        with ThreadPoolExecutor(workers) as ex:
+            orders = [(p, ids) for p in sorted(reask) for ids in (p.split("~"), p.split("~")[::-1])]
+            for (p, _), hit in zip(orders, ex.map(lambda o: call("pair", o[1], judge.pair), orders)):
+                if hit is None:
+                    continue
+                ans = hit["answer"] or {}
+                full[p].append(ans.get("same_footage"))
+                answers[p].append(ans.get("same_footage"))
+                cost[p] += hit["cost"]
+                detail[p] = ans.get("shared_detail") or ans.get("unsure_because") or detail.get(p)
+        for p in reask:
+            if full[p]:  # eval/spark-h15.md: a yes in either order is same; the full answers replace the cheap one
+                verdict[p] = "same" if "yes" in full[p] else "different" if full[p] == ["no", "no"] else "abstain"
+        reask = set()
 
     for r in rows:
         p = r["pair_id"]
@@ -239,7 +246,7 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
             continue
         v, s = verdict[p], sound.get(p)
         agree = sum(VERDICT.get(a, "abstain") == v for a in answers[p]) / len(answers[p])
-        note = "escalated, " if p in escalate else ""
+        note = "re-asked, " if full.get(p) else ""
         r.update(verify_verdict=v, verify_confidence=f"{agree:.2f}", verify_cost_usd=f"{cost[p]:.5f}",
                  verify_reason=f"{note}{(detail.get(p) or 'no shared detail named')[:160]}; sound "
                                + ("not usable" if s is None else f"{'matches' if s >= AUDIO_MATCH else 'differs'} ({s:.3f})"))

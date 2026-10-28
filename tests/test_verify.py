@@ -1,32 +1,38 @@
 import csv
+import json
 import shutil
 from pathlib import Path
 
 import pytest
 
-from indexreel import verify
+from indexreel import cluster, verify
 
 RUN = Path(__file__).parent / "fixtures" / "run_fake"
 ROOT = Path(__file__).parents[1]
+A_FAMILY = ["a_copy~a_orig", "a_copy~a_refilm", "a_orig~a_refilm"]
 
 
 class FakeJudge:
-    """Answers from a table keyed by clip ids: cheap[(anchor, candidate)] and full[(a, b)] give same_footage."""
+    """Answers from tables keyed by pair id: cheap[pid] for the group call, full[(a, b)] or full[pid] for the pair
+    call (ordered key first), else the defaults."""
 
-    def __init__(self, cheap, full=None):
-        self.cheap, self.full, self.calls = cheap, full or {}, []
+    def __init__(self, cheap=None, full=None, cheap_default="no", full_default="no"):
+        self.cheap, self.full, self.calls = cheap or {}, full or {}, []
+        self.cheap_default, self.full_default = cheap_default, full_default
 
     def group(self, anchor, cands):
         assert isinstance(cands, list) and all(Path(c).exists() for c in cands)
         a = Path(anchor).stem
         self.calls.append(("group", a, [Path(c).stem for c in cands]))
-        return [{"same_footage": self.cheap.get((a, Path(c).stem), "no"), "shared_detail": "the same tree"} for c in cands], 0.004
+        return [{"same_footage": self.cheap.get(cluster.pair_id(a, Path(c).stem), self.cheap_default),
+                 "shared_detail": "the same tree"} for c in cands], 0.004
 
     def pair(self, a, b):
         assert Path(a).exists() and Path(b).exists()
         a, b = Path(a).stem, Path(b).stem
         self.calls.append(("pair", a, b))
-        return {"same_footage": self.full.get((a, b), "no"), "unsure_because": "dark"}, 0.02
+        ans = self.full.get((a, b), self.full.get(cluster.pair_id(a, b), self.full_default))
+        return {"same_footage": ans, "unsure_because": "dark"}, 0.02
 
 
 class Refuse:
@@ -50,29 +56,75 @@ def rows(run):
     return {r["pair_id"]: r for r in csv.DictReader(open(run / "pairs.csv"))}
 
 
-def test_only_unresolved_pairs_get_a_verdict_and_conflicts_escalate(run, tmp_path):
+def set_band(run, pid, band):
+    with open(run / "pairs.csv", newline="") as f:
+        r = list(csv.DictReader(f))
+    for x in r:
+        if x["pair_id"] == pid:
+            x["band"] = band
+    with open(run / "pairs.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, list(r[0]))
+        w.writeheader()
+        w.writerows(r)
+
+
+def recordings(run):
+    ids = [c["id"] for c in json.loads((run / "clips.json").read_text())["clips"]]
+    rs = rows(run).values()
+    return sorted(sorted(r["members"]) for r in cluster.recordings(ids, [(r["pair_id"], r["a"], r["b"], cluster.effective_band(r)) for r in rs]))
+
+
+def test_merged_and_unresolved_pairs_get_a_verdict_apart_pairs_do_not(run, tmp_path):
     before = rows(run)
-    judge = FakeJudge(cheap={("b_cam1", "b_cam2"): "no"}, full={("a_refilm", "a_copy"): "yes"})
-    spent, total = verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    judge = FakeJudge(cheap={p: "yes" for p in A_FAMILY})
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
     after = rows(run)
-    # a_copy and a_refilm are both merged with a_orig, so the cheap "no" is a conflict and is re-asked in both orders
-    assert after["a_copy~a_refilm"]["verify_verdict"] == "same"
-    assert after["a_copy~a_refilm"]["verify_reason"].startswith("escalated")
-    assert after["a_copy~a_refilm"]["verify_confidence"] == "0.33"  # one yes among no, no, yes
-    assert ("pair", "a_copy", "a_refilm") in judge.calls and ("pair", "a_refilm", "a_copy") in judge.calls
-    assert after["b_cam1~b_cam2"]["verify_verdict"] == "different"
-    assert not any(c[0] == "pair" and "b_cam1" in c for c in judge.calls)
     for p, r in after.items():
         assert {k: v for k, v in r.items() if not k.startswith("verify_")} == {k: v for k, v in before[p].items() if not k.startswith("verify_")}
-        assert bool(r["verify_verdict"]) == (r["band"] == "unresolved")
-    assert spent == pytest.approx(2 * 0.004 + 2 * 0.02)  # two group requests (no shared anchor), two escalation calls
-    assert total == pytest.approx(sum(float(r["verify_cost_usd"] or 0) for r in after.values()))
+        assert bool(r["verify_verdict"]) == (r["band"] != "apart")
+    assert [after[p]["verify_verdict"] for p in A_FAMILY] == ["same"] * 3
+    assert after["b_cam1~b_cam2"]["verify_verdict"] == "different"
+    assert not any(c[0] == "pair" for c in judge.calls)  # no conflict anywhere, so no full-fidelity call
     assert list(next(csv.reader(open(run / "pairs.csv")))) == list(before["a_copy~a_refilm"])
+
+
+def test_a_cheap_miss_inside_a_recording_is_re_asked_and_cleared(run, tmp_path):
+    # a_copy~a_refilm cheap "no" makes it apart inside the recording joined through a_orig: a conflict
+    judge = FakeJudge(cheap={"a_copy~a_orig": "yes", "a_orig~a_refilm": "yes"}, full={("a_refilm", "a_copy"): "yes"}, full_default="yes")
+    spent, total = verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    after = rows(run)
+    assert after["a_copy~a_refilm"]["verify_verdict"] == "same" and after["a_copy~a_refilm"]["verify_reason"].startswith("re-asked")
+    assert after["a_copy~a_refilm"]["verify_confidence"] == "0.67"  # cheap no, then yes and yes
+    asked = {cluster.pair_id(a, b) for k, a, b in [c for c in judge.calls if c[0] == "pair"]}
+    assert asked == set(A_FAMILY)  # the conflicting pair and both join edges of that recording, both orders each
+    assert recordings(run)[0] == ["a_copy", "a_orig", "a_refilm"]
+    assert spent == pytest.approx(3 * 0.004 + 6 * 0.02)  # three group requests (b_cam1 and the a family), six full calls
+    assert total == pytest.approx(sum(float(r["verify_cost_usd"] or 0) for r in after.values()))
+
+
+def test_a_false_link_between_two_recordings_is_re_asked_and_split(run, tmp_path):
+    # the held-out N11~T11 case: one cheap "same" joins two recordings that the matcher holds apart elsewhere
+    set_band(run, "a_refilm~b_cam1", "unresolved")
+    judge = FakeJudge(cheap={**{p: "yes" for p in A_FAMILY}, "a_refilm~b_cam1": "yes"}, full_default="yes",
+                      full={"a_refilm~b_cam1": "no"})
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    after = rows(run)
+    assert after["a_refilm~b_cam1"]["verify_verdict"] == "different"
+    assert ["a_copy", "a_orig", "a_refilm"] in recordings(run) and ["b_cam1"] in recordings(run)
+    assert [after[p]["verify_verdict"] for p in A_FAMILY] == ["same"] * 3
+
+
+def test_a_merged_pair_the_judge_rejects_is_demoted_never_apart(run, tmp_path):
+    judge = FakeJudge(cheap={"a_copy~a_refilm": "yes", "a_orig~a_refilm": "yes"})  # a_copy~a_orig cheap "no"
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    r = rows(run)["a_copy~a_orig"]
+    assert r["band"] == "merged" and r["verify_verdict"] == "different"
+    assert cluster.effective_band(r) == "unresolved"
 
 
 def test_rerun_comes_from_the_cache(run, tmp_path):
     cache = verify.Cache(tmp_path / "cache")
-    verify.verify(run, FakeJudge(cheap={("a_refilm", "a_copy"): "yes"}), cache, sound={})  # ties anchor on the larger id
+    verify.verify(run, FakeJudge(cheap={"a_copy~a_refilm": "yes"}), cache, sound={})
     first = rows(run)
     assert first["a_copy~a_refilm"]["verify_verdict"] == "same"
     spent, _ = verify.verify(run, Refuse(), cache, sound={})
@@ -80,7 +132,7 @@ def test_rerun_comes_from_the_cache(run, tmp_path):
 
 
 def test_matching_sound_escalates_but_does_not_decide(run, tmp_path):
-    judge = FakeJudge(cheap={})
+    judge = FakeJudge(cheap={p: "yes" for p in A_FAMILY})
     verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={"b_cam1~b_cam2": 0.2})
     r = rows(run)["b_cam1~b_cam2"]
     assert ("pair", "b_cam1", "b_cam2") in judge.calls
@@ -88,8 +140,18 @@ def test_matching_sound_escalates_but_does_not_decide(run, tmp_path):
 
 
 def test_budget_stops_new_calls(run, tmp_path):
-    spent, _ = verify.verify(run, FakeJudge(cheap={}), verify.Cache(tmp_path / "cache"), sound={}, max_usd=0)
+    spent, _ = verify.verify(run, FakeJudge(), verify.Cache(tmp_path / "cache"), sound={}, max_usd=0)
     assert spent == 0 and not any(r["verify_verdict"] for r in rows(run).values())
+
+
+def test_an_anchor_with_several_candidates_gets_one_request(run, tmp_path):
+    for p in ("a_copy~b_cam1", "a_orig~b_cam1", "a_refilm~b_cam1", "b_cam1~c_alone"):
+        set_band(run, p, "unresolved")  # b_cam1 now has 5 pairs, so it anchors 4 candidates then 1
+    judge = FakeJudge(cheap={"b_cam1~b_cam2": "yes"})
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    groups = sorted(c for c in judge.calls if c[0] == "group" and c[1] == "b_cam1")
+    assert groups == sorted([("group", "b_cam1", ["a_copy", "a_orig", "a_refilm", "b_cam2"]), ("group", "b_cam1", ["c_alone"])])
+    assert rows(run)["b_cam1~b_cam2"]["verify_verdict"] == "same"
 
 
 def test_anchor_takes_at_most_four_candidates():
@@ -100,21 +162,3 @@ def test_anchor_takes_at_most_four_candidates():
 def test_prompts_are_the_measured_ones():
     assert verify.GROUP_PROMPT in (ROOT / "scripts" / "spark_h12.py").read_text()
     assert verify.PAIR_PROMPT in (ROOT / "scripts" / "spark_pilot3.py").read_text()
-
-
-def test_an_anchor_with_several_candidates_gets_one_request(run, tmp_path):
-    import csv as _csv
-    with open(run / "pairs.csv", newline="") as f:
-        r = list(_csv.DictReader(f))
-    for x in r:  # make every pair with b_cam1 unresolved, so b_cam1 anchors one request with 4 candidates
-        if "b_cam1" in (x["a"], x["b"]):
-            x["band"] = "unresolved"
-    with open(run / "pairs.csv", "w", newline="") as f:
-        w = _csv.DictWriter(f, list(r[0]))
-        w.writeheader()
-        w.writerows(r)
-    judge = FakeJudge(cheap={("b_cam1", "b_cam2"): "yes"})
-    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
-    groups = sorted(c for c in judge.calls if c[0] == "group" and c[1] == "b_cam1")
-    assert groups == sorted([("group", "b_cam1", ["a_copy", "a_orig", "a_refilm", "b_cam2"]), ("group", "b_cam1", ["c_alone"])])
-    assert rows(run)["b_cam1~b_cam2"]["verify_verdict"] == "same"
