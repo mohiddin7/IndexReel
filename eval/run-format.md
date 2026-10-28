@@ -168,7 +168,7 @@ One JSON object per line, appended and never edited:
 {"ts": "2026-10-29T14:03:11Z", "actor": "human", "action": "approve_merge", "pair": "a~b", "note": ""}
 ```
 
-`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Decisions about a clip carry `"pair": null` and `"clip": "<id>"`: `confirm_compilation` or `dismiss_compilation` (see Compilations). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file with `cluster.resolve(clip_ids, rows, audit)`, which returns the recordings and the compilations; `clusters.json` holds the matcher's own result without human decisions (`resolve` with an empty audit).
+`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Decisions about a clip carry `"pair": null` and `"clip": "<id>"`: `confirm_compilation` or `dismiss_compilation` (see Compilations). Decisions about a row of `claims.csv` carry `"pair": null`, `"clip": "<id>"` and `"claim": "<claim_id>"`: `approve_claim`, `reject_claim` or `reset_claim` (back to `suggested`); the page also writes the new `status` into that row of `claims.csv`, which stays the sheet readers use. `cluster` ignores these lines. Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file with `cluster.resolve(clip_ids, rows, audit)`, which returns the recordings and the compilations; `clusters.json` holds the matcher's own result without human decisions (`resolve` with an empty audit).
 
 ## claims.csv
 
@@ -186,7 +186,7 @@ One JSON object per line, appended and never edited:
 - A citation whose `quote` is not an exact substring of that clip's caption is dropped and logged (`claims: dropped ...`); a claim left with no citation is not written. This is checked in code, whatever the model answers.
 - Clips without a caption make no claims; a run with no caption makes no request and writes only the header.
 - One request covers every caption of the run, at minimal reasoning effort and at most 4,000 output tokens. It is made only if its worst case (every output token used) is within `--max-usd`; otherwise nothing is written. It is made once: an answer that does not complete (for example cut off at the token cap) ends with `claims: the request ended <status>, cost ...; no claims written, nothing cached` and is not asked again. The answer is cached by model, prompt and captions (`~/.cache/indexreel/claims`), so a rerun costs nothing and needs no key. The last line is `claims: spent $X now; the answer used cost $Y at list prices`.
-- `withdraw` reads `clip`, `claim_id` and `claim_text` and ignores the other columns, so it counts suggested rows as well; filtering by `status` is the reader's choice.
+- `withdraw` (the command and the wall page alike) counts only rows with `status` `approved` when the sheet has a `status` column, and says how many rows it skipped; a hand-written sheet without the column counts every row. Approval is per row: a claim cited by two posts is supported only through its approved rows.
 
 ## run.json
 

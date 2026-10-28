@@ -102,3 +102,13 @@ def test_a_suggestion_with_two_sources_inside_the_withdrawn_recording_makes_its_
              "suggestions": {"c": [seg(["a"]), seg(["b"])]}}, {"id": "r2", "members": ["z"], "status": "single", "unresolved_pairs": []}]
     out = withdraw.withdraw(recs, {"kb": ["b"], "kz": ["z"]}, "r1")
     assert verdicts(out) == {"kb": "undecided", "kz": "unaffected"} and out["undecided"][0]["unconfirmed"] == ["c"]
+
+
+def test_a_sheet_with_a_status_column_counts_only_approved_rows(tmp_path):
+    p = tmp_path / "claims.csv"
+    p.write_text("clip,claim_id,claim_text,quote,status\na_orig,c1,Paris,Paris,approved\nc_alone,c1,Paris,Paris,suggested\n"
+                 "b_cam1,c2,July 4,July 4,rejected\nb_cam2,c3,Lyon,Lyon,approved\n")
+    logs = []
+    claims, text = withdraw.read_claims(p, log=logs.append)
+    assert claims == {"c1": ["a_orig"], "c3": ["b_cam2"]} and "c2" not in text
+    assert logs == ["claims: 2 of 4 rows are not approved and are not counted"]

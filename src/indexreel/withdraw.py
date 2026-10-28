@@ -34,10 +34,18 @@ def run_recordings(run_dir, audit=None):
     return recs
 
 
-def read_claims(path):
-    """{claim_id: [cited clip ids]} and {claim_id: claim_text}, in file order."""
+def read_claims(path, log=print):
+    """{claim_id: [cited clip ids]} and {claim_id: claim_text}, in file order. A sheet with a `status` column (written
+    by `indexreel claims`) counts only its approved rows and says how many it skipped; one without counts every row."""
     claims, text = {}, {}
-    for r in csv.DictReader(open(path, newline="")):
+    reader = csv.DictReader(open(path, newline=""))
+    rows = list(reader)
+    if "status" in (reader.fieldnames or []):
+        kept = [r for r in rows if r["status"] == "approved"]
+        if len(kept) < len(rows):
+            log(f"claims: {len(rows) - len(kept)} of {len(rows)} rows are not approved and are not counted")
+        rows = kept
+    for r in rows:
         clips = claims.setdefault(r["claim_id"], [])
         if r["clip"] not in clips:
             clips.append(r["clip"])
