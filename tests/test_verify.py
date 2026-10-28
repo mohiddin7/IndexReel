@@ -17,11 +17,13 @@ class FakeJudge:
         self.cheap, self.full, self.calls = cheap, full or {}, []
 
     def group(self, anchor, cands):
+        assert isinstance(cands, list) and all(Path(c).exists() for c in cands)
         a = Path(anchor).stem
         self.calls.append(("group", a, [Path(c).stem for c in cands]))
         return [{"same_footage": self.cheap.get((a, Path(c).stem), "no"), "shared_detail": "the same tree"} for c in cands], 0.004
 
     def pair(self, a, b):
+        assert Path(a).exists() and Path(b).exists()
         a, b = Path(a).stem, Path(b).stem
         self.calls.append(("pair", a, b))
         return {"same_footage": self.full.get((a, b), "no"), "unsure_because": "dark"}, 0.02
@@ -70,8 +72,9 @@ def test_only_unresolved_pairs_get_a_verdict_and_conflicts_escalate(run, tmp_pat
 
 def test_rerun_comes_from_the_cache(run, tmp_path):
     cache = verify.Cache(tmp_path / "cache")
-    verify.verify(run, FakeJudge(cheap={("a_copy", "a_refilm"): "yes"}), cache, sound={})
+    verify.verify(run, FakeJudge(cheap={("a_refilm", "a_copy"): "yes"}), cache, sound={})  # ties anchor on the larger id
     first = rows(run)
+    assert first["a_copy~a_refilm"]["verify_verdict"] == "same"
     spent, _ = verify.verify(run, Refuse(), cache, sound={})
     assert spent == 0 and rows(run) == first
 
@@ -97,3 +100,21 @@ def test_anchor_takes_at_most_four_candidates():
 def test_prompts_are_the_measured_ones():
     assert verify.GROUP_PROMPT in (ROOT / "scripts" / "spark_h12.py").read_text()
     assert verify.PAIR_PROMPT in (ROOT / "scripts" / "spark_pilot3.py").read_text()
+
+
+def test_an_anchor_with_several_candidates_gets_one_request(run, tmp_path):
+    import csv as _csv
+    with open(run / "pairs.csv", newline="") as f:
+        r = list(_csv.DictReader(f))
+    for x in r:  # make every pair with b_cam1 unresolved, so b_cam1 anchors one request with 4 candidates
+        if "b_cam1" in (x["a"], x["b"]):
+            x["band"] = "unresolved"
+    with open(run / "pairs.csv", "w", newline="") as f:
+        w = _csv.DictWriter(f, list(r[0]))
+        w.writeheader()
+        w.writerows(r)
+    judge = FakeJudge(cheap={("b_cam1", "b_cam2"): "yes"})
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    groups = sorted(c for c in judge.calls if c[0] == "group" and c[1] == "b_cam1")
+    assert groups == sorted([("group", "b_cam1", ["a_copy", "a_orig", "a_refilm", "b_cam2"]), ("group", "b_cam1", ["c_alone"])])
+    assert rows(run)["b_cam1~b_cam2"]["verify_verdict"] == "same"

@@ -199,7 +199,8 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
         if spent >= max_usd:
             budget_hit = True
             return None
-        ans, cost = fn(*(paths[i] for i in ids))
+        first, *rest = (paths[i] for i in ids)
+        ans, cost = fn(first, rest) if kind == "group" else fn(first, *rest)  # group(anchor, [candidates]); pair(a, b)
         spent += cost
         hit = {"answer": ans, "cost": cost}
         cache.put(key, hit)
