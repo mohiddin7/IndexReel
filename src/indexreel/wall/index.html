@@ -242,9 +242,12 @@ function withdrawLists(out) {
     const left = e.remaining.length ? ` → still cited in ${e.remaining.map(esc).join(", ")}` : "";
     const tied = e.tied_by.length ? `; open pairs ${e.tied_by.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}` : "";
     const sp = (l) => `${num(l.start_s, 1)} to ${num(l.end_s, 1)} s`;
-    const lostSpans = e.lost_spans.map((l) => `<div class="small">${esc(l.clip)} contains footage of ${esc(w.id)} over ${sp(l)}</div>`).join("");
+    const note = (l) => (l.confirmed === false ? ", compilation not yet confirmed" : "");
+    const lostSpans = e.lost_spans.map((l) => `<div class="small">${esc(l.clip)} contains footage of ${esc(w.id)} over ${sp(l)}${note(l)}</div>`).join("");
     const partial = e.partial.map((l) => `<div class="small muted">${esc(l.clip)} still supports it over ${sp(l)} (${esc(l.recording)})</div>`).join("");
-    return `<li><strong>${esc(e.claim_id)}</strong>${text(e.claim_id)}${left}${tied}${lostSpans}${partial}</li>`;
+    const possible = (e.possible || []).map((l) => `<div class="small muted">possible: ${esc(l.clip)} over ${sp(l)} (${esc(l.recording)})${note(l)}</div>`).join("");
+    const unconfirmed = (e.unconfirmed || []).map((c) => `<div class="small">Confirm or dismiss the possible compilation <a href="#clip-${esc(c)}">${esc(c)}</a> to decide.</div>`).join("");
+    return `<li><strong>${esc(e.claim_id)}</strong>${text(e.claim_id)}${left}${tied}${lostSpans}${partial}${possible}${unconfirmed}</li>`;
   };
   const list = (title, rows, cls = "") => `<h3 class="${cls}">${title} (${rows.length})</h3>${rows.length ? `<ul class="claims">${rows.join("")}</ul>` : `<p class="muted small">none</p>`}`;
   const open = w.unresolved_pairs.length ? `<div class="warn">Pairs still undecided against this recording: ${w.unresolved_pairs.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}.</div>` : "";

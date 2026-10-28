@@ -430,3 +430,21 @@ def test_the_page_has_the_confirm_and_dismiss_buttons_and_the_recorded_export_ha
     wall.export(suggested, out)
     data = json.loads((out / "index.html").read_text().split('id="recorded-data">')[1].split("</script>")[0])
     assert data["state"]["suggestions"][0]["clip"] == "v_upload"
+
+
+def test_withdraw_view_marks_an_unconfirmed_compilation_as_undecided_with_the_clip_to_decide(suggested, tmp_path):
+    (tmp_path / "claims.csv").write_text("clip,claim_id,claim_text\nv_upload,k1,seen in the upload\np_orig,k2,seen at the source\n")
+    r1 = next(r["id"] for r in wall.state(suggested)["recordings"] if "p_orig" in r["members"])
+    out = wall.withdraw_view(suggested, tmp_path / "claims.csv", r1)
+    (k1,) = out["undecided"]
+    assert k1["claim_id"] == "k1" and k1["unconfirmed"] == ["v_upload"] and k1["lost_spans"][0]["confirmed"] is False
+    assert [(x["start_s"], x["end_s"], x["confirmed"]) for x in k1["possible"]] == [(0.0, 2.0, False), (87.0, 105.0, False)]
+    assert [e["claim_id"] for e in out["lost"]] == ["k2"] and out["kept"] == []
+    wall.append_audit(suggested, None, "confirm_compilation", clip="v_upload")
+    out = wall.withdraw_view(suggested, tmp_path / "claims.csv", r1)
+    assert [e["claim_id"] for e in out["kept"]] == ["k1"] and out["undecided"] == [] and out["kept"][0]["lost_spans"][0]["confirmed"] is True
+
+
+def test_the_page_words_for_possible_compilation_spans_are_there():
+    page = wall.PAGE.read_text()
+    assert "compilation not yet confirmed" in page and "possible: " in page and "Confirm or dismiss the possible compilation" in page
