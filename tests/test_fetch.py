@@ -105,3 +105,11 @@ def test_match_reads_the_sidecar_next_to_a_clip(tmp_path):
     fetch.fetch([URL], tmp_path, fake_ytdlp, lambda _: None)
     assert cli.load_source(tmp_path / "twitter_1234567890123456789.mp4")["account"] == "example_account"
     assert cli.load_source(tmp_path / "local_file.mp4") is None
+
+
+@pytest.mark.skipif(shutil.which("yt-dlp") is None, reason="yt-dlp not installed")
+def test_every_option_we_pass_exists_in_the_installed_ytdlp():
+    import subprocess
+    helptext = subprocess.run(["yt-dlp", "--help"], capture_output=True, text=True).stdout
+    opts = [a for a in fetch.ytdlp_cmd(URL, "out") if a.startswith("--") and a != "--"]
+    assert [o for o in opts if o not in helptext] == []

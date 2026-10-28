@@ -78,16 +78,21 @@ def source_from_info(info, url, now=None):
             "caption": str(text)[:2000] if text else None, "fetched_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
+def ytdlp_cmd(url, out):
+    """The yt-dlp command for one post. yt-dlp reads no netrc unless asked with --netrc."""
+    return ["yt-dlp", "--ignore-config", "--no-warnings", "--no-progress", "--restrict-filenames",
+            "--playlist-items", "1-4", "--max-filesize", "300M", "--write-info-json", "-f", "bv*+ba/b",
+            "--merge-output-format", "mp4", "-o", str(Path(out) / "%(extractor)s_%(id)s.%(ext)s"), "--", url]
+
+
 def run_ytdlp(url, out):
-    """Run yt-dlp for one post; returns (exit code, the first ERROR line of its output or '')."""
-    cmd = ["yt-dlp", "--ignore-config", "--no-netrc", "--no-warnings", "--no-progress", "--restrict-filenames",
-           "--playlist-items", "1-4", "--max-filesize", "300M", "--write-info-json", "-f", "bv*+ba/b",
-           "--merge-output-format", "mp4", "-o", str(Path(out) / "%(extractor)s_%(id)s.%(ext)s"), "--", url]
+    """Run yt-dlp for one post; returns (exit code, the first error line of its output or '')."""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        r = subprocess.run(ytdlp_cmd(url, out), capture_output=True, text=True, timeout=900)
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, f"ERROR: {type(e).__name__}"
-    err = next((ln for ln in (r.stderr + "\n" + r.stdout).splitlines() if "ERROR" in ln), "")
+    # A bad option prints "yt-dlp: error: ..." (lower case), so match either case.
+    err = next((ln for ln in (r.stderr + "\n" + r.stdout).splitlines() if "error" in ln.lower()), "")
     return r.returncode, err
 
 
