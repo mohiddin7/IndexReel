@@ -42,3 +42,7 @@ A bar 1 failure is a FAIL whatever else happens.
 ## Limits
 
 These are simulated copies of 16 recordings: one PiP template and one re-film simulation. The result says nothing about copies in the wild, real phone re-films (see `eval/refilm-h5-result.md` for those) or other cameras at the same event. With 48 positives, a Wilson interval is wide. Two target clips are my own phone recordings. Everything runs once.
+
+## Addendum A (Oct 28, after the match step, before any verifier answer)
+
+The verify step crashed on its first request: it passed a group's candidates as separate arguments, so with one candidate it tried to upload `/`. No request reached the API and no verdict exists. Fix and stronger tests: commit `a9125c5` (argument passing only; prompts, sizes, effort, grouping, escalation and the decision rule are unchanged). What I saw before this addendum is the matcher's one-line summary for the held-out run: 1,128 pairs, 36 merged, 31 unresolved, 1,061 apart, 21 recordings. The match output is kept as it is (not rerun), and the verifier runs once on it from `a9125c5`, with a fresh answer cache and `--max-usd 10`. The bars do not change.
