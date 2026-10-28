@@ -66,3 +66,17 @@ def test_cli_prints_the_three_lists(tmp_path, capsys):
     withdraw.main([str(RUN), "--claims", str(p), "--clip", "a_orig"])
     out = capsys.readouterr().out
     assert "Lose all video support (1)" in out and "k1" in out and "Unaffected: k2" in out
+
+
+def test_a_cited_compilation_loses_only_the_span_of_the_withdrawn_recording():
+    # v_upload holds r2 (0-2 s), r1 (13-52 s) and r3 (87-105 s); p_orig and p_copy are r1
+    recs = withdraw.run_recordings(RUN.parent / "run_fake_compilation")
+    claims = {"k1": ["v_upload"], "k2": ["p_orig"], "k3": ["z_alone"]}
+    out = withdraw.withdraw(recs, claims, rec_of(recs, "p_orig"))
+    assert verdicts(out) == {"k1": "kept", "k2": "lost", "k3": "unaffected"}
+    k1 = out["kept"][0]
+    assert k1["lost_spans"] == [{"clip": "v_upload", "recording": rec_of(recs, "p_orig"), "start_s": 13.0, "end_s": 52.0}]
+    assert [(p["recording"], p["start_s"], p["end_s"]) for p in k1["partial"]] == [(rec_of(recs, "q_cam"), 0.0, 2.0),
+                                                                                (rec_of(recs, "r_cam"), 87.0, 105.0)]
+    # withdrawing the compilation itself loses a claim that cites only it
+    assert verdicts(withdraw.withdraw(recs, claims, rec_of(recs, "v_upload")))["k1"] == "lost"
