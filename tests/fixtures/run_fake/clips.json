@@ -1,0 +1,106 @@
+{
+ "version": 1,
+ "clips": [
+  {
+   "id": "a_orig",
+   "path": "clips/a_orig.mp4",
+   "duration_s": 20.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 20,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 0.0
+   }
+  },
+  {
+   "id": "a_copy",
+   "path": "clips/a_copy.mp4",
+   "duration_s": 20.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 20,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 0.0
+   }
+  },
+  {
+   "id": "a_refilm",
+   "path": "clips/a_refilm.mp4",
+   "duration_s": 21.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 21,
+   "crop": {
+    "method": "opencv",
+    "quad": [
+     [
+      88,
+      52
+     ],
+     [
+      1010,
+      41
+     ],
+     [
+      1032,
+      640
+     ],
+     [
+      70,
+      655
+     ]
+    ],
+    "fallback_share": 0.1
+   }
+  },
+  {
+   "id": "b_cam1",
+   "path": "clips/b_cam1.mp4",
+   "duration_s": 30.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 30,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 0.0
+   }
+  },
+  {
+   "id": "b_cam2",
+   "path": "clips/b_cam2.mp4",
+   "duration_s": 24.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 24,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 0.0
+   }
+  },
+  {
+   "id": "c_alone",
+   "path": "clips/c_alone.mp4",
+   "duration_s": 12.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 12,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 0.0
+   }
+  }
+ ]
+}

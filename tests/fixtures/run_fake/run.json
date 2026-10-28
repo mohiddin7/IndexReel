@@ -1,0 +1,18 @@
+{
+ "version": 1,
+ "command": "indexreel match clips --out run_fake",
+ "created_utc": "2026-10-29T13:00:00Z",
+ "git_commit": "0000000",
+ "n_clips": 6,
+ "sample": "1 frame per second",
+ "thresholds": {
+  "merge_at": 0.54,
+  "floor": 0.3
+ },
+ "localiser": {
+  "method": "opencv",
+  "theta": 0.9
+ },
+ "sscd_model_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+ "note": "invented numbers; example for readers of the format"
+}

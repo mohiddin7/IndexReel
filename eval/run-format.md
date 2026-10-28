@@ -1,0 +1,88 @@
+# Run format (version 1)
+
+`indexreel match <clips dir> --out <run dir>` writes one run directory. Later stages (a verifier, a viewer, a withdrawal analysis) read it and add to it; none of them re-reads the clips to learn what the matcher decided. This file fixes the format. A small example is in `tests/fixtures/run_fake/` and `tests/test_run_format.py` checks that it follows these rules.
+
+```
+run/
+  run.json        how the run was made
+  clips.json      one entry per clip
+  pairs.csv       one row per unordered pair of clips
+  clusters.json   recordings built from the pairs
+  frames/         aligned evidence images, one per merged or unresolved pair
+  audit.jsonl     human decisions, append only
+```
+
+All times are seconds from the start of the clip, written with at most three decimals. Paths in `clips.json` are absolute, or relative to the run directory.
+
+## clips.json
+
+```
+{"version": 1, "clips": [
+  {"id": "b01_T", "path": "...", "duration_s": 10.0, "fps": 25.0, "width": 1920, "height": 1080,
+   "frames_sampled": 10,
+   "crop": {"method": "opencv", "quad": [[x, y], [x, y], [x, y], [x, y]], "fallback_share": 0.0}}]}
+```
+
+`id` is the file stem and is unique; it contains no `~`. `crop.quad` is the median accepted quadrilateral over the sampled frames, in source pixels (clockwise from top left), or `null` when no localiser result was used (`method: "none"`). `fallback_share` is the fraction of sampled frames where the localiser found nothing and the whole frame was used.
+
+## pairs.csv
+
+Columns, in this order:
+
+| column | meaning |
+|---|---|
+| `pair_id` | `a~b` with the two ids sorted; the key everything else uses |
+| `a`, `b` | clip ids, `a < b` |
+| `score` | SSCD best-match score (each sampled frame against its best frame in the other clip, averaged; both directions, one clip mirrored; the highest) |
+| `aligned` | SSCD aligned score: the highest mean cosine along one constant time offset (see `eval/sscd-exploratory.md`, Addendum A) |
+| `mirrored` | 1 if the best alignment needs one clip mirrored, else 0 |
+| `offset_s` | the offset of the best alignment: time in `b` minus time in `a` |
+| `a_start_s`, `a_end_s` | the part of `a` the aligned frames cover |
+| `b_start_s`, `b_end_s` | the same in `b` (`b_start_s = a_start_s + offset_s`) |
+| `band` | `merged`, `unresolved` or `apart`, from the rule below |
+| `evidence` | path of the evidence image relative to the run directory, empty when there is none |
+| `evidence_a_s` | the times in `a` shown in that image, separated by `;` |
+| `verify_verdict` | empty from the matcher; the verifier writes `same`, `different` or `abstain` |
+| `verify_confidence` | empty; a number in [0, 1] |
+| `verify_reason` | empty; one short sentence |
+| `verify_cost_usd` | empty; cost of the verifier call for this pair |
+
+Every unordered pair appears once. The sampled frame is the middle of each second, so frame `i` covers `[i, i+1)` seconds.
+
+## Bands
+
+With two thresholds `merge_at` and `floor` (written to `run.json` and `clusters.json`):
+
+- `merged`: `aligned >= merge_at`.
+- `apart`: `aligned < floor` and `score < merge_at`.
+- `unresolved`: everything else. This includes a pair whose best-match `score` is high but whose frames do not line up in time.
+
+`merge_at` is the smallest value with no false merge among the dev negatives; `floor` is fixed and not tuned. How they were set is in `eval/match-thresholds.md`. The verifier is meant to work on the `unresolved` pairs.
+
+## clusters.json
+
+```
+{"version": 1, "thresholds": {"merge_at": 0.54, "floor": 0.30, "score_used": "aligned"},
+ "recordings": [{"id": "r1", "members": ["a", "b"], "status": "unresolved",
+                 "evidence_pairs": ["a~b"], "unresolved_pairs": ["b~c"], "conflicts": []}]}
+```
+
+A recording is a connected component of the `merged` pairs. `status` is `unresolved` if any `unresolved` pair touches one of its clips, otherwise `merged` for two or more clips and `single` for one. `conflicts` lists `apart` pairs whose two clips are in the same recording: merging is not transitive, and the format keeps the contradiction instead of hiding it. Recordings are numbered `r1, r2, ...` in the order of their first clip in `clips.json`. `src/indexreel/cluster.py` computes this from `pairs.csv`.
+
+## audit.jsonl
+
+One JSON object per line, appended and never edited:
+
+```
+{"ts": "2026-10-29T14:03:11Z", "actor": "human", "action": "approve_merge", "pair": "a~b", "note": ""}
+```
+
+`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file (`cluster.apply_audit`, then `cluster.recordings`); `clusters.json` holds the matcher's own result without human decisions.
+
+## run.json
+
+`{"version": 1, "command": "...", "created_utc": "...", "git_commit": "...", "n_clips": 8, "sample": "1 frame per second", "thresholds": {"merge_at": ..., "floor": ...}, "localiser": {"method": "opencv", "theta": 0.9}, "sscd_model_sha256": "..."}`
+
+## Changing the format
+
+A change adds a column or a key and raises `version` only when it removes or re-defines one. Readers ignore keys and columns they do not know.

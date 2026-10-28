@@ -1,0 +1,61 @@
+{
+ "version": 1,
+ "thresholds": {
+  "merge_at": 0.54,
+  "floor": 0.3,
+  "score_used": "aligned"
+ },
+ "recordings": [
+  {
+   "id": "r1",
+   "members": [
+    "a_orig",
+    "a_copy",
+    "a_refilm"
+   ],
+   "status": "unresolved",
+   "evidence_pairs": [
+    "a_copy~a_orig",
+    "a_orig~a_refilm"
+   ],
+   "unresolved_pairs": [
+    "a_copy~a_refilm"
+   ],
+   "conflicts": []
+  },
+  {
+   "id": "r2",
+   "members": [
+    "b_cam1"
+   ],
+   "status": "unresolved",
+   "evidence_pairs": [],
+   "unresolved_pairs": [
+    "b_cam1~b_cam2"
+   ],
+   "conflicts": []
+  },
+  {
+   "id": "r3",
+   "members": [
+    "b_cam2"
+   ],
+   "status": "unresolved",
+   "evidence_pairs": [],
+   "unresolved_pairs": [
+    "b_cam1~b_cam2"
+   ],
+   "conflicts": []
+  },
+  {
+   "id": "r4",
+   "members": [
+    "c_alone"
+   ],
+   "status": "single",
+   "evidence_pairs": [],
+   "unresolved_pairs": [],
+   "conflicts": []
+  }
+ ]
+}
