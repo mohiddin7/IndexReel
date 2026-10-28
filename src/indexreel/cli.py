@@ -16,7 +16,7 @@ import numpy as np
 from indexreel import cluster, localise, sscd
 
 MERGE_AT = 0.55  # set on dev only, see eval/match-thresholds.md
-FLOOR = 0.30
+FLOOR = 0.20
 VIDEO = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
 MODEL = Path(__file__).resolve().parents[2] / "data" / "models" / "sscd_disc_mixup.torchscript.pt"
 PAIR_COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s", "a_start_s", "a_end_s", "b_start_s",

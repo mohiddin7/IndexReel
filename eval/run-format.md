@@ -68,7 +68,7 @@ With two thresholds `merge_at` and `floor` (written to `run.json` and `clusters.
 - `apart`: `aligned < floor` and `score < merge_at`.
 - `unresolved`: everything else. This includes a pair whose best-match `score` is high but whose frames do not line up in time.
 
-`merge_at` is the smallest value with no false merge among the dev negatives; `floor` is fixed and not tuned. How they were set is in `eval/match-thresholds.md`. The verifier is meant to work on the `unresolved` pairs.
+`merge_at` is the smallest value with no false merge among the dev negatives; `floor` was chosen on dev. How both were set is in `eval/match-thresholds.md`. The verifier is meant to work on the `unresolved` pairs.
 
 ## clusters.json
 

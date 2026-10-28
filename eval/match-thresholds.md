@@ -39,3 +39,19 @@ Dev run, `indexreel match` on the 24 dev clips (74 s on CPU for 240 s of video; 
 - Negatives (252): 0 `merged` (by construction), 1 `unresolved` (the night-city re-film pair above), 251 `apart`.
 - The four positives that did not merge are all the night-city family (T04 and N04): the localiser accepted no quadrilateral on 100% and 90% of their re-film frames, and the whole dark frame scored 0.24 to 0.41. The two `apart` ones would never reach a verifier; that is a miss to report, not hide.
 - Raw output: the run directory of this command on the dev fixtures (scores, spans, bands per pair).
+
+## Amendment 1 (Oct 28): floor lowered to 0.20, before any held-out run
+
+The rule above fixed `floor` at 0.30 without tuning. The dev run showed that two true pairs, both re-films of one dark family, scored 0.24 and 0.26 and fell `apart`, so a verifier would never have seen them. I lowered `floor` to 0.20, the largest multiple of 0.05 that is at most the lowest `aligned` score of a dev positive (0.241). `merge_at` stays 0.55. The choice used the dev positives, so the dev counts below are not independent evidence; the held-out run, done once after this commit, is.
+
+Same dev clips, same scores (cached), new bands:
+
+| | 0.30 | 0.20 |
+|---|---|---|
+| positives merged / unresolved / apart (24) | 20 / 2 / 2 | 20 / 4 / 0 |
+| negatives merged / unresolved / apart (252) | 0 / 1 / 251 | 0 / 7 / 245 |
+| pairs a verifier has to look at (of 276) | 3 | 11 |
+
+Eight more pairs reach the verifier: the two positives above and six negatives, all involving the dark night-city family or a simulated re-film of a different family (aligned 0.21 to 0.26). That is 4% of the pairs instead of 1%. Cost per pair is in the verifier's own log.
+
+Measured while building the cache: it takes about 0.2 MB of disk per second of video (50 MB for the 240 s of dev clips), and a second run over the same clips took 2.7 s instead of 76.7 s with identical pairs. The message of the commit that added the cache says 2 MB per second; that figure is wrong.
