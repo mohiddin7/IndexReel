@@ -68,6 +68,8 @@ Columns, in this order:
 | `verify_cost_usd` | empty; cost of the verifier call for this pair |
 | `core_a_start_s`, `core_a_end_s` | the longest run of consecutive sampled frames along the alignment whose cosine is at least 0.4: where the two clips really match, inside `a_start_s`..`a_end_s`. Empty when no frame reaches 0.4 |
 | `core_b_start_s`, `core_b_end_s` | the same run in `b` (its start is the start in `a` plus `offset_s`) |
+| `cover_a`, `cover_b` | the share of each clip's sampled seconds that the other clip matches (see Partial copies), from 0 to 1 |
+| `cover_a_start_s`, `cover_a_end_s`, `cover_b_start_s`, `cover_b_end_s` | where that match lies in each clip; empty when nothing matches |
 
 Every unordered pair appears once. The sampled frame is the middle of each second, so frame `i` covers `[i, i+1)` seconds.
 
@@ -140,6 +142,22 @@ A clip made of consecutive pieces of several recordings links to each of them, a
 `cluster.resolve_all(clip_ids, rows, audit)` returns `(recordings, compilations, suggestions)`; `cluster.resolve` returns the first two, which with no `confirm_compilation` entry means a run without any compilation.
 
 The constants (core cosine 0.4, at least 2 s, overlap 0.5 s) were set on the build split of `eval/compilation.md`. `tests/fixtures/run_fake_compilation/` is an invented run with one compilation of three recordings.
+
+## Partial copies
+
+A clip that holds part of a recording followed or preceded by footage the run does not have (another recording that was never posted) links to that recording over part of its timeline. The compilation rule cannot see this, since it needs two sources in the run; joining the two would count the clip as a copy.
+
+- `cover_a` and `cover_b` say how much of each clip the other one matches. The offset used is the one with the most sampled frames at cosine 0.4 or more along it (closest to `offset_s` on ties; a nearly static scene leaves the aligned offset undecided). A frame counts when it reaches 0.4 against a frame of the other clip within 2 frames of that offset, so dips, re-films and jump cuts do not cut the span short. Each span runs from the first to the last counted frame, but no longer than the other clip's span moved by the offset (in slow footage the frames next to a shared stretch still match within 2 frames).
+- A pair that counts as merged after the verifier and the audit is **partial** when both covers are below 0.8: neither clip lies mostly inside the other, so they share footage rather than being copies. A clip with a partial pair and no merged pair covering 0.8 of it holds footage no link explains; every merged pair of that clip is partial too, so a short clip that lies inside it does not make it a copy either. Clips of a detected compilation (suggested, confirmed or dismissed) keep the compilation rule instead. Unresolved pairs stay unresolved, whatever their covers: a link nobody has checked is not a claim of shared footage. Approving a partial pair (`approve_merge`) does not join the recordings; `split` makes it apart.
+- A partial pair joins nothing and is not undecided. The recording of each of its clips carries `"partial": {clip: segments}` in the compilations' segment shape: one segment per recording that clip shares footage with, `start_s` and `end_s` in that clip's own timeline (from the cover spans), `clips` and `links` the partners and pairs. Both clips of a partial pair get an entry, because the run cannot tell which of them is the source of the shared stretch. The key is absent on recordings without partial pairs, and runs without the cover columns have none.
+- Withdrawing a recording r loses the stretch of every cited clip whose `partial` entry names r (listed as `lost_spans`); the clip's own recording still supports the claim.
+
+```
+{"id": "r4", "members": ["x"], "status": "single", ...,
+ "partial": {"x": [{"recording": "r2", "clips": ["o", "p"], "links": ["o~x", "p~x"], "start_s": 0, "end_s": 7}]}}
+```
+
+The constants (band 2 frames, share 0.8) were set on the build split of `eval/partial.md`. By design the rule over-counts two trims of one recording that overlap only partly when no clip in the run holds both, and a clip that holds a whole recording plus other footage still merges with it unless it also has a partial pair.
 
 ## audit.jsonl
 

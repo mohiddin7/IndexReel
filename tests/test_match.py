@@ -53,6 +53,7 @@ def test_match_writes_a_run_that_follows_the_format(tmp_path):
     assert list(rows[0]) == cli.PAIR_COLUMNS and len(rows) == 3
     by = {r["pair_id"]: r for r in rows}
     assert by["a~a_copy"]["band"] == "merged" and by["a~a_copy"]["aligned"] > 0.9
+    assert by["a~a_copy"]["cover_a"] == by["a~a_copy"]["cover_b"] == 1.0  # a full copy covers both clips
     assert float(by["a~b"]["aligned"]) < float(by["a~a_copy"]["aligned"])
     for r in rows:
         assert r["b_start_s"] == r["a_start_s"] + r["offset_s"]

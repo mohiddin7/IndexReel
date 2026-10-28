@@ -65,3 +65,7 @@ Two changes to what the matcher writes, made after the held-out run reported on 
 **Core span.** Four columns at the end of `pairs.csv`: the longest run of consecutive sampled frames along the alignment whose cosine is at least 0.4 (`eval/run-format.md`). The cut-off was chosen on the build split of `eval/compilation.md` only: at 0.4, 29 of 30 true segments get a run and none of 198 wrong-family pairs gives one of two or more frames (0.5: 24 of 30; 0.6: 17 of 30). On the 24 dev clips, 22 of 24 true pairs have a core span and 4 of 252 unrelated pairs do (1 of 2 s or more). The columns are not used for bands.
 
 Merge threshold 0.55 and floor 0.20 are unchanged.
+
+## Amendment 3 (Oct 28): cover columns and partial copies, bands unchanged
+
+Six columns at the end of `pairs.csv` (`cover_a`, `cover_b` and their spans) say how much of each clip the other matches, and `cluster.resolve_all` uses them to record a merged pair that covers part of both clips as shared footage (`partial`) instead of joining the recordings. Definitions in `eval/run-format.md` (Partial copies); the band of 2 frames and the share of 0.8 were set on the build split of `eval/partial.md`. No band changes, and `pairs.csv` of the 24 dev fixtures is identical to the run at 23614a4 apart from the new columns; none of the 276 dev pairs is partial. Runs pinned to 23614a4 and 18a42e4 do not have the columns and are not affected.

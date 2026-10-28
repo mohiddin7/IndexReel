@@ -17,11 +17,13 @@ from indexreel import cluster, localise, sscd
 
 MERGE_AT = 0.55  # set on dev only, see eval/match-thresholds.md
 FLOOR = 0.20
+COVER_BAND = 2  # frames around the alignment where cover_spans looks for matches (eval/partial.md, build split)
 VIDEO = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
 MODEL = Path(__file__).resolve().parents[2] / "data" / "models" / "sscd_disc_mixup.torchscript.pt"
 PAIR_COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s", "a_start_s", "a_end_s", "b_start_s",
                 "b_end_s", "band", "evidence", "evidence_a_s", "verify_verdict", "verify_confidence", "verify_reason",
-                "verify_cost_usd", "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s"]
+                "verify_cost_usd", "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s", "cover_a", "cover_b",
+                "cover_a_start_s", "cover_a_end_s", "cover_b_start_s", "cover_b_end_s"]
 THUMB = (320, 180)
 CACHE = Path.home() / ".cache" / "indexreel" / "match"
 STAGES = [("fetch", "indexreel.fetch", "download the videos of posts you name"),
@@ -137,6 +139,11 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         al, k, i0, i1, flipped = sscd.aligned_match(feats[a], feats[b])
         core = sscd.core_span(feats[a], feats[b], k, i0, i1, flipped)
         core = [""] * 4 if core is None else [core[0], min(core[1], dur[a]), core[0] + k, round(min(core[1] + k, dur[b]), 3)]
+        cov = sscd.cover_spans(feats[a], feats[b], k, flipped, COVER_BAND)
+        na, nb = len(feats[a][0]), len(feats[b][0])
+        cover = ["0", "0", "", "", "", ""] if cov is None else [
+            round((cov[0][1] - cov[0][0]) / na, 3), round((cov[1][1] - cov[1][0]) / nb, 3),
+            cov[0][0], min(cov[0][1], dur[a]), cov[1][0], round(min(cov[1][1], dur[b]), 3)]
         pid = cluster.pair_id(a, b)
         bd = cluster.band(al, score, merge_at, floor)
         ev, evt = "", ""
@@ -147,7 +154,8 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
                      "mirrored": int(flipped), "offset_s": k, "a_start_s": i0, "a_end_s": min(i1, dur[a]),
                      "b_start_s": i0 + k, "b_end_s": round(min(i1 + k, dur[b]), 3), "band": bd, "evidence": ev,
                      "evidence_a_s": evt, "verify_verdict": "", "verify_confidence": "", "verify_reason": "",
-                     "verify_cost_usd": "", **dict(zip(PAIR_COLUMNS[-4:], core))})
+                     "verify_cost_usd": "", **dict(zip(PAIR_COLUMNS[-10:-6], core)),
+                     **dict(zip(PAIR_COLUMNS[-6:], cover))})
     with open(out / "pairs.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=PAIR_COLUMNS)
         w.writeheader()

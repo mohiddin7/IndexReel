@@ -112,3 +112,28 @@ def core_span(a, b, offset, start, end, flipped):
         if first is not None and j + 1 - first > best[1] - best[0]:
             best = (first, j + 1)
     return (start + best[0], start + best[1]) if best[1] > best[0] else None
+
+
+def cover_spans(a, b, offset, flipped, band):
+    """Where each clip has frames matching the other: ((a start, a end), (b start, b end)) or None.
+
+    The offset used is the one with the most frames at CORE_COS or more along it (closest to `offset`, the aligned
+    one, on ties): on a nearly static scene the aligned score can prefer a shorter diagonal. A frame of a counts when
+    it reaches CORE_COS against a frame of b within `band` frames of that offset, and the other way round, so dips
+    and jump cuts do not cut a span short. Each clip's span is the shorter of its own counted frames' extent and the
+    other clip's extent moved by the offset: in slow footage the frames just outside a shared stretch still match
+    within the band, which widens the first by up to `band` frames on each side.
+    """
+    x = a[1] if flipped else a[0]
+    s = x @ b[0].T
+    na, nb = s.shape
+    k = max(range(-na + 1, nb), key=lambda d: (int((np.diagonal(s, d) >= CORE_COS).sum()), -abs(d - offset)))
+    i, j = np.indices(s.shape)
+    ok = (s >= CORE_COS) & (np.abs(j - i - k) <= band)
+    ra, rb = np.flatnonzero(ok.any(1)), np.flatnonzero(ok.any(0))
+    if not len(ra):
+        return None
+    own_a, own_b = (int(ra[0]), int(ra[-1]) + 1), (int(rb[0]), int(rb[-1]) + 1)
+    moved = lambda sp, d, n: (max(0, sp[0] + d), min(n, sp[1] + d))
+    short = lambda p, q: p if p[1] - p[0] <= q[1] - q[0] else q
+    return short(own_a, moved(own_b, -k, na)), short(own_b, moved(own_a, k, nb))

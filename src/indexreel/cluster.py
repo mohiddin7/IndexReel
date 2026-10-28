@@ -81,6 +81,15 @@ def recordings(clip_ids, pairs):
 
 MIN_CORE = 2.0  # seconds: a source's core span in a compilation must last at least this long (set on the build split)
 TOL = 0.5       # seconds: spans overlapping by more than this cover the same stretch (spans lie on a 1 s grid)
+SHARE = 0.8     # a merged link is partial when it covers less than this share of both clips (eval/partial.md, build split)
+
+
+def _covered(row, side):
+    """True when the pair's match covers at least SHARE of clip `side` ("a" or "b"); None in runs without cover columns."""
+    try:
+        return float(row[f"cover_{side}"]) >= SHARE
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _core(row, clip):
@@ -180,6 +189,13 @@ def resolve_all(clip_ids, rows, audit=()):
     `compilation`. While a suggestion stands, recordings are as if the rule did not exist, except that the recording
     holding the clip is `unresolved`, since a decision is needed.
 
+    Partial copies: a pair that counts as merged after the audit and covers less than SHARE of both clips
+    (`cover_a`, `cover_b`) shows shared footage, not a copy, unless one of its clips is a detected compilation. It is
+    `partial` too. A clip with such a pair and no merged pair covering SHARE of it holds footage no link explains, so
+    every merged pair of it is partial: a short clip inside it does not make it a copy either. The recording of each
+    clip of a partial pair gets `partial` {clip: segments}: the recordings that clip shares footage with, over its
+    cover span. Unresolved pairs are left as they are.
+
     Returns (recordings, compilations, suggestions); both lists hold
     {"clip", "recording", "segments": [{"recording", "clips", "links", "start_s", "end_s"}]} with the spans in the
     compilation's own timeline.
@@ -226,8 +242,28 @@ def resolve_all(clip_ids, rows, audit=()):
     confirmed = {x for x in segs if said.get(x) == "confirm_compilation"}
     suggested = {x for x in segs if x not in said}
     partial = {p for p, b in bands.items() if b != "apart" and (by_id[p]["a"] in confirmed or by_id[p]["b"] in confirmed)}
-    rec = recordings(clip_ids, [(p, r["a"], r["b"], "partial" if p in partial else bands[p]) for p, r in by_id.items()])
+    links = [p for p, b in bands.items() if b == "merged" and not {by_id[p]["a"], by_id[p]["b"]} & set(segs)]
+    shared = {p for p in links if _covered(by_id[p], "a") is False and _covered(by_id[p], "b") is False}
+    covered = {by_id[p][s] for p in links for s in "ab" if _covered(by_id[p], s)}
+    cut = {by_id[p][s] for p in shared for s in "ab"} - covered  # holds footage no link explains: it contains, never is a copy
+    shared |= {p for p in links if {by_id[p]["a"], by_id[p]["b"]} & cut}
+    rec = recordings(clip_ids, [(p, r["a"], r["b"], "partial" if p in partial | shared else bands[p]) for p, r in by_id.items()])
     where = {c: r["id"] for r in rec for c in r["members"]}
+    held = {}  # clip -> {recording it shares footage with: [(start, end, pair id, other clip)]}
+    for p in sorted(shared):
+        for x, y in ((by_id[p]["a"], by_id[p]["b"]), (by_id[p]["b"], by_id[p]["a"])):
+            side = "a" if by_id[p]["a"] == x else "b"
+            st, en = (float(by_id[p][f"cover_{side}_start_s"]), float(by_id[p][f"cover_{side}_end_s"])) \
+                if by_id[p].get(f"cover_{side}_start_s") not in (None, "") else _core(by_id[p], x) \
+                or (float(by_id[p][f"{side}_start_s"]), float(by_id[p][f"{side}_end_s"]))
+            held.setdefault(x, {}).setdefault(where[y], []).append((st, en, p, y))
+    for r in rec:
+        for x in r["members"]:
+            if x in held:
+                r.setdefault("partial", {})[x] = sorted(
+                    ({"recording": o, "clips": sorted({y for *_, y in g}), "links": sorted(p for _, _, p, _ in g),
+                      "start_s": min(a for a, *_ in g), "end_s": max(b for _, b, *_ in g)} for o, g in held[x].items()),
+                    key=lambda s: (s["start_s"], s["end_s"], s["recording"]))
     for r in rec:
         if r["members"][0] in confirmed:  # a confirmed compilation's links are all partial, so its recording has one clip
             r["status"] = "compilation"

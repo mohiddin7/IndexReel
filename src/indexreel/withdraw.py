@@ -57,6 +57,8 @@ def withdraw(recs, claims, withdrawn):
     suggested compilation (`unconfirmed`) loses its span of the withdrawn recording too, but its other spans are
     `possible` support: undecided until a person confirms or dismisses it. A suggestion that puts two or more source
     groups inside the withdrawn recording leaves the extent of the withdrawal open, so nothing citing it is lost.
+    A cited clip that shares footage with the withdrawn recording (a `partial` entry naming it) loses that stretch,
+    listed in `lost_spans`, and keeps the support of its own recording.
     """
     by_id = {r["id"]: r for r in recs}
     if withdrawn not in by_id:
@@ -78,6 +80,10 @@ def withdraw(recs, claims, withdrawn):
                 (lost_spans if s["recording"] == withdrawn else parts).append(span)
         for c in clips:
             r = rec_of[c]
+            for s in by_id[r].get("partial", {}).get(c, []) if r != withdrawn else []:
+                if s["recording"] == withdrawn:  # shared footage: that stretch may be the withdrawn recording's
+                    lost_spans.append({"clip": c, "recording": withdrawn, "start_s": s["start_s"], "end_s": s["end_s"],
+                                       "confirmed": True})
             for s in by_id[r].get("suggestions", {}).get(c, []):
                 if s["recording"] == r != withdrawn:
                     continue  # the clip's own recording supports it directly
