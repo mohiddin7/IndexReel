@@ -252,6 +252,8 @@ def resolve_all(clip_ids, rows, audit=()):
     held = {}  # clip -> {recording it shares footage with: [(start, end, pair id, other clip)]}
     for p in sorted(shared):
         for x, y in ((by_id[p]["a"], by_id[p]["b"]), (by_id[p]["b"], by_id[p]["a"])):
+            if where[x] == where[y]:  # other merged links already join them: nothing to say about another recording
+                continue
             side = "a" if by_id[p]["a"] == x else "b"
             st, en = (float(by_id[p][f"cover_{side}_start_s"]), float(by_id[p][f"cover_{side}_end_s"])) \
                 if by_id[p].get(f"cover_{side}_start_s") not in (None, "") else _core(by_id[p], x) \

@@ -100,3 +100,11 @@ def test_cover_spans_on_a_shared_stretch_a_static_scene_and_a_jump_cut():
     jump = (np.vstack([src[0][0:3], src[0][5:8]]),) * 2
     al = sscd.aligned_match(jump, src)
     assert sscd.cover_spans(jump, src, al[1], al[4], 2)[0] == (0, 6)  # both pieces, across the cut
+
+
+
+def test_a_partial_pair_inside_one_recording_names_no_recording():
+    # c lies inside a (so a~c merges), b is a full copy of a, and b~c covers part of both: c is already in a's recording
+    rows = [row("a", "b", "merged", (1, 1)), row("a", "c", "merged", (0.5, 1)), row("b", "c", "merged", (0.5, 0.6))]
+    rec = cluster.resolve_all(["a", "b", "c"], rows)[0]
+    assert members(rec) == [["a", "b", "c"]] and "partial" not in rec[0]
