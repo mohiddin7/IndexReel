@@ -50,7 +50,7 @@ def test_bands_and_clusters_follow_the_rules(run):
     for r in rows:
         assert r["band"] == cluster.band(float(r["aligned"]), float(r["score"]), th["merge_at"], th["floor"])
     ids = [c["id"] for c in run[0]]
-    assert (clusters["recordings"], clusters["compilations"]) == cluster.resolve(ids, rows, [])
+    assert (clusters["recordings"], clusters["compilations"], clusters.get("compilation_suggestions", [])) == cluster.resolve_all(ids, rows, [])
 
 
 def test_audit_decisions_change_the_clusters():
@@ -84,13 +84,20 @@ def test_effective_band(band, verdict, expected):
     assert cluster.effective_band({"band": band, "verify_verdict": verdict}) == expected
 
 
-def test_a_compilation_is_its_own_recording_and_names_its_sources(run):
-    _, _, clusters, _, d = run
+def test_a_compilation_is_a_suggestion_until_confirmed_then_its_own_recording(run):
+    clips, rows, clusters, _, d = run
     if d.name != "run_fake_compilation":
-        assert clusters["compilations"] == []
+        assert clusters["compilations"] == [] and "compilation_suggestions" not in clusters
         return
-    (c,) = clusters["compilations"]
+    (c,) = clusters["compilation_suggestions"]
+    assert clusters["compilations"] == [] and c["clip"] == "v_upload"
+    # unconfirmed, the clip is joined to its sources and the recording is undecided
     by_id = {r["id"]: r for r in clusters["recordings"]}
-    assert by_id[c["recording"]]["status"] == "compilation" and by_id[c["recording"]]["members"] == [c["clip"]]
-    assert sorted(by_id[s["recording"]]["members"][0] for s in c["segments"]) == ["p_orig", "q_cam", "r_cam"]
-    assert [s["start_s"] for s in c["segments"]] == sorted(s["start_s"] for s in c["segments"])
+    assert by_id[c["recording"]]["status"] == "unresolved" and "v_upload" in by_id[c["recording"]]["members"]
+    ids = [x["id"] for x in clips]
+    rec, comps, sug = cluster.resolve_all(ids, rows, [{"action": "confirm_compilation", "clip": "v_upload"}])
+    (k,) = comps
+    by_id = {r["id"]: r for r in rec}
+    assert sug == [] and by_id[k["recording"]]["status"] == "compilation" and by_id[k["recording"]]["members"] == ["v_upload"]
+    assert sorted(by_id[s["recording"]]["members"][0] for s in k["segments"]) == ["p_orig", "q_cam", "r_cam"]
+    assert [s["start_s"] for s in k["segments"]] == sorted(s["start_s"] for s in k["segments"])

@@ -34,7 +34,7 @@ def apply_audit(bands, audit):
     """Human decisions override the bands in file order, the last entry for a pair takes effect; reset restores the computed band."""
     out = dict(bands)
     for e in audit:
-        p = e["pair"]
+        p = e.get("pair")  # decisions about a clip, such as confirm_compilation, have no pair
         if p not in out:
             continue
         if e["action"] == "approve_merge":
@@ -166,17 +166,26 @@ def _find_list(parent, i):
     return i
 
 
-def resolve(clip_ids, rows, audit=()):
-    """Recordings and compilations from pairs.csv rows plus the audit: the one recompute path every reader uses.
+def resolve_all(clip_ids, rows, audit=()):
+    """Recordings, confirmed compilations and suggested compilations from pairs.csv rows plus the audit.
 
-    Order: effective band of every pair, human decisions on top, compilation detection, connected components.
-    A compilation clip keeps its links to its sources but none of them joins anything or counts as undecided (they
-    are `partial`); it stays a recording of its own with status `compilation`. Returns (recordings, compilations),
-    compilations being [{"clip", "recording", "segments": [{"recording", "links", "start_s", "end_s"}]}] with the
-    spans in the compilation's own timeline.
+    The one recompute path every reader uses. Order: effective band of every pair, human decisions on top,
+    compilation detection, connected components.
+
+    A clip whose links reach different recordings over different parts of its own timeline is a *suggested*
+    compilation. Nothing separates its sources until a person confirms it with an audit entry
+    {"action": "confirm_compilation", "clip": id}; {"action": "dismiss_compilation", "clip": id} drops the
+    suggestion. The last entry for a clip counts. A confirmed compilation keeps its links to its sources but none of
+    them joins anything or counts as undecided (they are `partial`); it is a recording of its own with status
+    `compilation`. While a suggestion stands, recordings are as if the rule did not exist, except that the recording
+    holding the clip is `unresolved`, since a decision is needed.
+
+    Returns (recordings, compilations, suggestions); both lists hold
+    {"clip", "recording", "segments": [{"recording", "clips", "links", "start_s", "end_s"}]} with the spans in the
+    compilation's own timeline.
 
     Detection: a clip with two or more stretches is a candidate. Candidates are confirmed one at a time, the one
-    with the most stretches first, and a confirmed compilation is no evidence for the others (a source shared by
+    with the most stretches first, and a detected compilation is no evidence for the others (a source shared by
     several compilations would otherwise look like one itself). Sources are found with all candidates left out of
     the graph, because two compilations that share sources would connect them. A candidate whose stretches all
     reach one source (a jump cut) or that lost its evidence is dropped and joins as an ordinary clip.
@@ -210,13 +219,26 @@ def resolve(clip_ids, rows, audit=()):
         for x in lost:
             del segs[x]
     segs = {x: again[x][0] for x in segs}
-    partial = {p for p, b in bands.items() if b != "apart" and (by_id[p]["a"] in segs or by_id[p]["b"] in segs)}
+    said = {}
+    for e in audit:
+        if e.get("action") in ("confirm_compilation", "dismiss_compilation") and e.get("clip") in segs:
+            said[e["clip"]] = e["action"]
+    confirmed = {x for x in segs if said.get(x) == "confirm_compilation"}
+    suggested = {x for x in segs if x not in said}
+    partial = {p for p, b in bands.items() if b != "apart" and (by_id[p]["a"] in confirmed or by_id[p]["b"] in confirmed)}
     rec = recordings(clip_ids, [(p, r["a"], r["b"], "partial" if p in partial else bands[p]) for p, r in by_id.items()])
     where = {c: r["id"] for r in rec for c in r["members"]}
     for r in rec:
-        if r["members"][0] in segs:  # a compilation's links are all partial, so its recording has one clip
+        if r["members"][0] in confirmed:  # a confirmed compilation's links are all partial, so its recording has one clip
             r["status"] = "compilation"
-    comps = [{"clip": x, "recording": where[x],
-              "segments": [{"recording": where[g["clips"][0]], "links": g["links"], "start_s": g["start_s"],
-                            "end_s": g["end_s"]} for g in segs[x]]} for x in clip_ids if x in segs]
-    return rec, comps
+        elif suggested & set(r["members"]):
+            r["status"] = "unresolved"
+    entry = lambda x: {"clip": x, "recording": where[x],
+                       "segments": [{"recording": where[g["clips"][0]], "clips": g["clips"], "links": g["links"],
+                                     "start_s": g["start_s"], "end_s": g["end_s"]} for g in segs[x]]}
+    return rec, [entry(x) for x in clip_ids if x in confirmed], [entry(x) for x in clip_ids if x in suggested]
+
+
+def resolve(clip_ids, rows, audit=()):
+    """Recordings and confirmed compilations (see resolve_all, which also returns the suggestions)."""
+    return resolve_all(clip_ids, rows, audit)[:2]

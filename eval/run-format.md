@@ -127,14 +127,17 @@ A clip made of consecutive pieces of several recordings links to each of them, a
 
 - A pair's core span in a clip (`core_*` columns) is where the two clips match. A clip's *stretches* are the groups of its merged or unresolved pairs whose core spans (at least 2 s long) overlap by more than 0.5 s, strongest pair (`aligned`) first; copies of one recording match the same stretch. Core spans lie on the 1 s sampling grid.
 - A clip with two or more stretches is a candidate. Its partners are grouped into sources by the merged links that do not touch a candidate; stretches that reach a common source count as one. The clip is a **compilation** when its stretches reach two or more sources. A jump cut of one recording reaches one source twice and is not one. Candidates are confirmed one at a time, most stretches first, and a confirmed compilation is not evidence for another clip; each confirmed clip is then checked again against the final graph.
-- A compilation's links to its sources (merged or unresolved) are `partial`: they join nothing and do not count as undecided. It is a recording of its own, with `status` `compilation`, and appears in `compilations`:
+- A detected compilation is only a **suggestion** until a person confirms it. While it stands, recordings are exactly as if the rule did not exist (the clip is joined to its sources by its merged links), except that the recording holding the clip has `status` `unresolved`, because a decision is needed. The suggestion is listed in `clusters.json` under `compilation_suggestions` (key absent when there are none).
+- **Confirming** (audit action `confirm_compilation`) makes the clip's links to its sources, merged or unresolved, `partial`: they join nothing and do not count as undecided. The clip is a recording of its own with `status` `compilation`, and appears in `compilations`. **Dismissing** (`dismiss_compilation`) drops the suggestion and leaves the clip joined as it was. The last entry for a clip counts; an entry for a clip that is not suggested does nothing.
 
 ```
 {"clip": "v_upload", "recording": "r4",
- "segments": [{"recording": "r2", "links": ["q_cam~v_upload"], "start_s": 0, "end_s": 2}, ...]}
+ "segments": [{"recording": "r2", "clips": ["q_cam"], "links": ["q_cam~v_upload"], "start_s": 0, "end_s": 2}, ...]}
 ```
 
-`start_s` and `end_s` are in the compilation's own timeline, segments are in time order, and `recording` is the source's recording. The rule runs after the verifier and after the audit, so approving every link of a compilation does not join its sources; a person can still split or approve a link between the sources themselves.
+`compilations` and `compilation_suggestions` hold entries of this shape. `start_s` and `end_s` are in the compilation's own timeline, segments are in time order, `clips` are the source clips of the segment and `recording` is the recording holding the first of them (while the suggestion stands this can be the same recording for every segment, since nothing is separated yet). The rule runs after the verifier and after the audit, so approving every link of a clip that is a confirmed compilation does not join its sources; a person can still split or approve a link between the sources themselves.
+
+`cluster.resolve_all(clip_ids, rows, audit)` returns `(recordings, compilations, suggestions)`; `cluster.resolve` returns the first two, which with no `confirm_compilation` entry means a run without any compilation.
 
 The constants (core cosine 0.4, at least 2 s, overlap 0.5 s) were set on the build split of `eval/compilation.md`. `tests/fixtures/run_fake_compilation/` is an invented run with one compilation of three recordings.
 
@@ -146,7 +149,7 @@ One JSON object per line, appended and never edited:
 {"ts": "2026-10-29T14:03:11Z", "actor": "human", "action": "approve_merge", "pair": "a~b", "note": ""}
 ```
 
-`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file with `cluster.resolve(clip_ids, rows, audit)`, which returns the recordings and the compilations; `clusters.json` holds the matcher's own result without human decisions (`resolve` with an empty audit).
+`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Decisions about a clip carry `"pair": null` and `"clip": "<id>"`: `confirm_compilation` or `dismiss_compilation` (see Compilations). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file with `cluster.resolve(clip_ids, rows, audit)`, which returns the recordings and the compilations; `clusters.json` holds the matcher's own result without human decisions (`resolve` with an empty audit).
 
 ## run.json
 

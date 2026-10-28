@@ -154,10 +154,11 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         w.writerows(rows)
 
     th = {"merge_at": merge_at, "floor": floor}
-    rec, comps = cluster.resolve([c["id"] for c in info], rows)
+    rec, comps, suggested = cluster.resolve_all([c["id"] for c in info], rows)
     (out / "clips.json").write_text(json.dumps({"version": 1, "clips": info}, indent=1))
     (out / "clusters.json").write_text(json.dumps({"version": 1, "thresholds": {**th, "score_used": "aligned"},
-                                                   "recordings": rec, "compilations": comps}, indent=1))
+                                                   "recordings": rec, "compilations": comps,
+                                                   **({"compilation_suggestions": suggested} if suggested else {})}, indent=1))
     (out / "audit.jsonl").touch()  # human decisions live here; never truncated
     (out / "run.json").write_text(json.dumps({
         "version": 1, "command": argv, "created_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
