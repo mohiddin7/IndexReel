@@ -74,6 +74,15 @@ The rule passes with all five.
 
 **Amendment 1 (Oct 28, before the rule was run on anything).** Bar 4 as written cannot hold: the frozen dev run `data/match_dev_fixtures_floor020` was made before the `core_*` columns existed and before the mirror margin (Amendment 2 of `eval/match-thresholds.md`), which changed `mirrored`, `aligned` and the offsets of 124 of its pairs but no band. Bar 4 now reads: the 276 fixture pairs have every column identical to `data/identity_old/pairs.csv` (the same fixtures matched by the code at 23614a4, which the pending re-film arm uses) apart from the two new cover columns, none of them is partial, and their bands and the recordings of the fixtures are the same as in `data/match_dev_fixtures_floor020`.
 
+**Amendment 2 (Oct 28, before the test split was run or opened).** The first build run showed a flaw in the material, not the rule: filler pieces were drawn with replacement from 7 takes per split, so several generated clips held overlapping footage of one phone take. Those clips really share a recording, which turns them into compilations of two sources in the run (one of them joined T02 and T04 through a shared take). That breaks the premise that the filler is footage the run does not hold. I changed the generator so that every filler piece of a split comes from its own take, and regenerated both splits with new seeds. To have enough takes I widened the pools to all my own takes long enough for a piece (including the airshow and July 4 folders: different recordings of the same events, so the filler of different clips can look alike) and gave the test split the four USGS volcano recordings of `data/event_volcano` (public domain); they are not clips of any run here. Fewer takes forced smaller splits. New material, replacing the table above:
+
+| split | seed | partial copies | trims | jump cuts | containers | re-films | filler takes | `truth.csv` sha256 |
+|---|---|---|---|---|---|---|---|---|
+| build | 21 | 10 | 4 | 4 | 1 | 16 | 14 | `1ace15d3751a5feadabcb41b86d757ac3e6499664f65d022a85b9bf06c2de975` |
+| test | 22 | 18 | 8 | 8 | 2 | 32 | 27 | `fc8389c23690c896aba76f4b20d4742ed0caaa09bf081f33cc0fafb5e9612aef` |
+
+The bars are unchanged (bar 1 still needs n of at least 10). Re-films: only the dev clips b01 to b04 of each take; the takes also hold the gate clips b05 to b08, which are not used.
+
 ## Reported, not scored
 
 - Bars 1 to 5 on the build split (development numbers), and the values of `SHARE` and `G` tried there.
