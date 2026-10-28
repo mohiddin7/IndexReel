@@ -62,13 +62,20 @@ def score(a, b):
 
 
 def _best_diagonal(s, min_overlap):
-    """Highest mean of s along any diagonal at least min_overlap long; -1 when none is."""
-    means = [d.mean() for k in range(-s.shape[0] + 1, s.shape[1]) if len(d := np.diagonal(s, offset=k)) >= min_overlap]
-    return float(max(means)) if means else -1.0
+    """(mean, offset, start, length) of the diagonal of s with the highest mean among those at least min_overlap long."""
+    best = (-1.0, 0, 0, 0)
+    for k in range(-s.shape[0] + 1, s.shape[1]):
+        d = np.diagonal(s, offset=k)
+        if len(d) >= min_overlap and d.mean() > best[0]:
+            best = (float(d.mean()), k, max(0, -k), len(d))
+    return best
 
 
-def aligned_score(a, b):
-    """Like score(), but matched frames must line up at one constant time offset (1 frame per second).
+def aligned_match(a, b):
+    """Aligned score of two clips, with where it was found.
+
+    Returns (score, offset, start, end, mirrored): frame i of a lines up with frame i + offset of b for i in
+    [start, end); with one frame per second these are seconds. mirrored is True when a had to be mirrored.
 
     ponytail: constant offset only, so speed changes are missed; a short clip slid along a long one tries many
     offsets, which favours false matches. Upgrade to a monotone alignment (DTW) if copies with changed speed matter.
@@ -76,4 +83,11 @@ def aligned_score(a, b):
     (ap, af), (bp, _) = a, b
     n = min(len(ap), len(bp))
     need = min(n, max(3, -(-n // 2)))
-    return max(_best_diagonal(ap @ bp.T, need), _best_diagonal(af @ bp.T, need))
+    plain, mirror = _best_diagonal(ap @ bp.T, need), _best_diagonal(af @ bp.T, need)
+    best, flipped = (mirror, True) if mirror[0] > plain[0] else (plain, False)
+    return best[0], best[1], best[2], best[2] + best[3], flipped
+
+
+def aligned_score(a, b):
+    """Like score(), but matched frames must line up at one constant time offset."""
+    return aligned_match(a, b)[0]
