@@ -80,3 +80,9 @@ def test_stages_are_reachable_from_the_entry_point(stage, capsys):
     with pytest.raises(SystemExit) as e:
         cli.main([stage, "--help"])
     assert e.value.code == 0 and "run" in capsys.readouterr().out
+
+
+def test_evidence_labels_name_posts_by_place_and_shorten_long_ids():
+    assert cli.label({"id": "twitter_2115522805395542016", "source": {"platform": "x"}}, 5) == "post 5"
+    assert cli.label({"id": "N01__refilm_sim"}, 3) == "N01__refilm_sim"  # short ids stay, so dev images do not change
+    assert cli.label({"id": "devgate_refilm_A_bezel_b01_T"}, 1) == "devgate_re..ezel_b01_T"

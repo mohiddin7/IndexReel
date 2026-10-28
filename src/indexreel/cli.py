@@ -62,6 +62,15 @@ def evidence_image(path, a, b, ta, tb, flip_a, i0, i1, offset):
     return ";".join(f"{i + 0.5:.1f}" for i in idx)
 
 
+def label(clip, place):
+    """What the evidence images call a clip, as the wall page does: "post N" (its place in clips.json, from 1) for a
+    clip from a post, else its id, shortened to 22 characters around ".." (the image font has no ellipsis)."""
+    if clip.get("source"):
+        return f"post {place}"
+    i = clip["id"]
+    return i if len(i) <= 22 else f"{i[:10]}..{i[-10:]}"
+
+
 def find_clips(folder):
     clips = sorted(p for p in Path(folder).iterdir() if p.suffix.lower() in VIDEO)
     ids = [p.stem for p in clips]
@@ -132,6 +141,7 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
                      **({"source": src} if (src := load_source(p)) else {})})
         print(f"{p.stem}: {len(quads)} frames, localiser fallback {fallback:.0%}", flush=True)
     dur = {c["id"]: c["duration_s"] for c in info}
+    name = {c["id"]: label(c, n) for n, c in enumerate(info, 1)}
 
     rows = []
     for a, b in itertools.combinations(sorted(feats), 2):
@@ -149,7 +159,7 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         ev, evt = "", ""
         if bd != "apart":
             ev = f"frames/{pid}.jpg"
-            evt = evidence_image(out / ev, a, b, thumbs[a], thumbs[b], flipped, i0, i1, k)
+            evt = evidence_image(out / ev, name[a], name[b], thumbs[a], thumbs[b], flipped, i0, i1, k)
         rows.append({"pair_id": pid, "a": a, "b": b, "score": round(score, 4), "aligned": round(al, 4),
                      "mirrored": int(flipped), "offset_s": k, "a_start_s": i0, "a_end_s": min(i1, dur[a]),
                      "b_start_s": i0 + k, "b_end_s": round(min(i1 + k, dur[b]), 3), "band": bd, "evidence": ev,

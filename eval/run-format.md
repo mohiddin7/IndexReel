@@ -82,7 +82,7 @@ The aligned overlap (`a_start_s` to `b_end_s`) is at least half of the shorter c
 
 - The left column is clip `a`, the right column is clip `b`. A frame is fitted into its cell and padded with dark grey, so any aspect ratio keeps its shape.
 - The three rows are the first, the middle and the last sampled frame of the overlap (`a_start_s` to `a_end_s`); on an overlap shorter than three frames some rows repeat. `evidence_a_s` lists the time in `a` of each row, in row order, separated by `;`. The time in `b` of the same row is that time plus `offset_s`.
-- Each cell has the clip id and its time in the top left corner. The time is the middle of the sampled second (frame `i` is shown as `i + 0.5` s).
+- Each cell has the clip's label and its time in the top left corner. The label is `post N` for a clip from a post (N is its place in `clips.json`, from 1, as the wall page names it), otherwise the clip id, shortened to its first and last 10 characters around `..` when longer than 22. The time is the middle of the sampled second (frame `i` is shown as `i + 0.5` s).
 - Each cell shows the frame the matcher scored, after localisation: rectified to 640 x 360 where the localiser accepted a quadrilateral, otherwise the whole frame. When `mirrored` is 1 the left cell is flipped left to right, so that it reads like the right one.
 
 The example in `tests/fixtures/run_fake/` uses placeholder pictures in the same layout.
