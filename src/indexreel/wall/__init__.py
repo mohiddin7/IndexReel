@@ -130,6 +130,12 @@ def state(run, claims=None, results=None):
     current = cluster.apply_audit(computed, audit)
     recs = withdraw.run_recordings(run, audit)  # cluster.resolve: the one recompute path, so ids match the withdraw panel
     compilations = {r["members"][0] for r in recs if r["status"] == "compilation"}
+    shared = {}  # pair id -> [{clip, recording, start_s, end_s}]: footage two clips share without being copies
+    for rec in recs:
+        for clip, segs in rec.get("partial", {}).items():
+            for g in segs:
+                for link in g["links"]:
+                    shared.setdefault(link, []).append({"clip": clip, "recording": g["recording"], "start_s": g["start_s"], "end_s": g["end_s"]})
     suggestions = cluster.resolve_all([c["id"] for c in clips], rows, audit)[2]  # detected, not yet confirmed or dismissed
     by_hand = {}
     clip_decisions = {}
@@ -149,7 +155,10 @@ def state(run, claims=None, results=None):
             "mirrored": r["mirrored"] == "1", "offset_s": offset,
             "a_span": [float(r["a_start_s"]), float(r["a_end_s"])], "b_span": [float(r["b_start_s"]), float(r["b_end_s"])],
             "matcher": r["band"], "computed": computed[r["pair_id"]],
-            "band": "partial" if current[r["pair_id"]] != "apart" and {r["a"], r["b"]} & compilations else current[r["pair_id"]],
+            "band": "partial" if r["pair_id"] in shared or (current[r["pair_id"]] != "apart" and {r["a"], r["b"]} & compilations)
+                    else current[r["pair_id"]],
+            "shared": shared.get(r["pair_id"], []),
+            "cover": [float(r["cover_a"]), float(r["cover_b"])] if r.get("cover_a") and r.get("cover_b") else None,
             "core": core if len(core) == 2 else None, "decision": by_hand.get(r["pair_id"]),
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})

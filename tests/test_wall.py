@@ -448,3 +448,89 @@ def test_withdraw_view_marks_an_unconfirmed_compilation_as_undecided_with_the_cl
 def test_the_page_words_for_possible_compilation_spans_are_there():
     page = wall.PAGE.read_text()
     assert "compilation not yet confirmed" in page and "possible: " in page and "Confirm or dismiss the possible compilation" in page
+
+
+PARTIAL_COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s", "a_start_s", "a_end_s", "b_start_s", "b_end_s",
+                   "band", "evidence", "evidence_a_s", "verify_verdict", "verify_confidence", "verify_reason", "verify_cost_usd",
+                   "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s",
+                   "cover_a", "cover_b", "cover_a_start_s", "cover_a_end_s", "cover_b_start_s", "cover_b_end_s"]
+
+
+def partial_run(tmp_path, with_covers=True):
+    """o is a 20 s recording, p a full copy, x holds o's last 7 s and then 7 s of footage that is not in the run."""
+    run = tmp_path / "partial"
+    (run / "frames").mkdir(parents=True)
+    ids = {"o": 20.0, "p": 20.0, "x": 14.0}
+    (run / "clips.json").write_text(json.dumps({"version": 1, "clips": [
+        {"id": i, "path": f"{i}.mp4", "duration_s": d, "fps": 25.0, "width": 640, "height": 360, "frames_sampled": int(d),
+         "crop": {"method": "none", "quad": None, "fallback_share": 0.0}} for i, d in ids.items()]}))
+    (run / "run.json").write_text(json.dumps({"version": 1, "command": "x", "created_utc": "2026-10-29T00:00:00Z", "git_commit": "0",
+                                              "n_clips": 3, "sample": "1 frame per second", "thresholds": {"merge_at": 0.55, "floor": 0.2}}))
+    (run / "clusters.json").write_text(json.dumps({"version": 1, "thresholds": {"merge_at": 0.55, "floor": 0.2, "score_used": "aligned"}, "recordings": []}))
+    (run / "audit.jsonl").write_text("")
+    spec = [("o~p", "o", "p", (1, 1), (0, 20), (0, 20)), ("o~x", "o", "x", (0.35, 0.5), (13, 20), (0, 7)),
+            ("p~x", "p", "x", (0.35, 0.5), (13, 20), (0, 7))]
+    with open(run / "pairs.csv", "w", newline="") as f:
+        import csv as _csv
+        w = _csv.DictWriter(f, fieldnames=PARTIAL_COLUMNS if with_covers else PARTIAL_COLUMNS[:22], restval="")
+        w.writeheader()
+        for pid, a, b, cov, sa, sb in spec:
+            row = {"pair_id": pid, "a": a, "b": b, "score": 0.8, "aligned": 0.8, "mirrored": 0, "offset_s": 0, "a_start_s": sa[0], "a_end_s": sa[1],
+                   "b_start_s": sb[0], "b_end_s": sb[1], "band": "merged"}
+            if with_covers:
+                row.update(cover_a=cov[0], cover_b=cov[1], cover_a_start_s=sa[0], cover_a_end_s=sa[1], cover_b_start_s=sb[0], cover_b_end_s=sb[1])
+            w.writerow(row)
+    return run
+
+
+def test_a_pair_that_shares_only_part_of_both_clips_is_partial_and_joins_nothing(tmp_path):
+    from indexreel import withdraw
+    run = partial_run(tmp_path)
+    s = wall.state(run)
+    bands = {p["id"]: p["band"] for p in s["pairs"]}
+    assert bands == {"o~p": "merged", "o~x": "partial", "p~x": "partial"}
+    assert sorted(sorted(r["members"]) for r in s["recordings"]) == [["o", "p"], ["x"]]
+    assert s["recordings"] == withdraw.run_recordings(run)
+    pair = {p["id"]: p for p in s["pairs"]}["o~x"]
+    assert pair["cover"] == [0.35, 0.5]
+    assert {(g["clip"], g["start_s"], g["end_s"]) for g in pair["shared"]} == {("x", 0.0, 7.0), ("o", 13.0, 20.0)}
+    x = next(r for r in s["recordings"] if r["members"] == ["x"])
+    assert x["status"] == "single" and x["partial"]["x"][0]["links"] == ["o~x", "p~x"]
+    assert not any(p["band"] == "unresolved" for p in s["pairs"])  # nothing is waiting on a decision
+
+
+def test_the_audit_on_a_partial_pair_follows_the_format(tmp_path):
+    run = partial_run(tmp_path)
+    wall.append_audit(run, "o~x", "approve_merge")  # approving a partial pair keeps it partial
+    assert {p["id"]: p["band"] for p in wall.state(run)["pairs"]}["o~x"] == "partial"
+    wall.append_audit(run, "o~x", "split")
+    wall.append_audit(run, "p~x", "split")
+    s = wall.state(run)
+    assert {p["id"]: p["band"] for p in s["pairs"]}["o~x"] == "apart" and not any(r.get("partial") for r in s["recordings"])
+    wall.append_audit(run, "o~x", "reset")
+    wall.append_audit(run, "p~x", "reset")
+    assert {p["id"]: p["band"] for p in wall.state(run)["pairs"]}["p~x"] == "partial"
+
+
+def test_a_run_without_cover_columns_has_no_partial_pairs(tmp_path):
+    s = wall.state(partial_run(tmp_path, with_covers=False))
+    assert {p["id"]: p["band"] for p in s["pairs"]}["o~x"] == "merged" and all(p["cover"] is None and p["shared"] == [] for p in s["pairs"])
+    assert sorted(sorted(r["members"]) for r in s["recordings"]) == [["o", "p", "x"]]
+
+
+def test_withdraw_view_loses_the_shared_stretch_of_a_clip_that_has_its_own_recording(tmp_path):
+    run = partial_run(tmp_path)
+    (tmp_path / "claims.csv").write_text("clip,claim_id,claim_text\nx,k1,seen in x\no,k2,seen in o\n")
+    r_o = next(r["id"] for r in wall.state(run)["recordings"] if "o" in r["members"])
+    out = wall.withdraw_view(run, tmp_path / "claims.csv", r_o)
+    assert [e["claim_id"] for e in out["lost"]] == ["k2"] and [e["claim_id"] for e in out["kept"]] == ["k1"]
+    assert [(g["clip"], g["start_s"], g["end_s"]) for g in out["kept"][0]["lost_spans"]] == [("x", 0.0, 7.0)]
+
+
+def test_the_page_has_the_wording_for_shared_footage_and_exports_it(tmp_path):
+    page = wall.PAGE.read_text()
+    assert "shares footage with" in page and "not counted as a copy" in page and "sharedNote" in page
+    run = partial_run(tmp_path)
+    wall.export(run, tmp_path / "exp")
+    data = json.loads((tmp_path / "exp" / "index.html").read_text().split('id="recorded-data">')[1].split("</script>")[0])
+    assert data["state"]["pairs"][1]["shared"] and "path" not in data["state"]["clips"][0]
