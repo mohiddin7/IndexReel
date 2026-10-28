@@ -91,8 +91,10 @@ def state(run, claims=None):
     th = json.loads((run / "clusters.json").read_text())["thresholds"]
     meta = json.loads((run / "run.json").read_text())
     rows, audit = read_pairs(run), read_audit(run)
-    computed = {r["pair_id"]: r["band"] for r in rows}
+    computed = {r["pair_id"]: cluster.effective_band(r) for r in rows}  # the matcher's band with the verifier's answer
     current = cluster.apply_audit(computed, audit)
+    recs = withdraw.run_recordings(run, audit)  # cluster.resolve: the one recompute path, so ids match the withdraw panel
+    compilations = {r["members"][0] for r in recs if r["status"] == "compilation"}
     by_hand = {}
     for e in audit:  # the last entry for a pair counts; reset hands the pair back to the matcher
         if e["pair"] in computed:
@@ -105,10 +107,11 @@ def state(run, claims=None):
             "id": r["pair_id"], "a": r["a"], "b": r["b"], "score": float(r["score"]), "aligned": float(r["aligned"]),
             "mirrored": r["mirrored"] == "1", "offset_s": offset,
             "a_span": [float(r["a_start_s"]), float(r["a_end_s"])], "b_span": [float(r["b_start_s"]), float(r["b_end_s"])],
-            "computed": r["band"], "band": current[r["pair_id"]], "decision": by_hand.get(r["pair_id"]),
+            "matcher": r["band"], "computed": computed[r["pair_id"]],
+            "band": "partial" if current[r["pair_id"]] != "apart" and {r["a"], r["b"]} & compilations else current[r["pair_id"]],
+            "decision": by_hand.get(r["pair_id"]),
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
-    recs = cluster.recordings([c["id"] for c in clips], [(p["id"], p["a"], p["b"], p["band"]) for p in pairs])
     return {"run": meta, "claims": claims is not None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "audit": audit}
 
 

@@ -229,3 +229,52 @@ def test_export_refuses_a_full_directory_and_evidence_outside_frames(run, tmp_pa
 def test_the_live_page_still_has_its_buttons_and_the_recorded_page_marks_itself():
     page = wall.PAGE.read_text()
     assert 'content="live"' in page and "RECORDED ?" in page and "<!--DATA-->" in page
+
+
+COMPILATION = FIXTURE.parent / "run_fake_compilation"
+
+
+def test_the_page_groups_clips_exactly_as_the_withdraw_stage_does():
+    from indexreel import withdraw
+    for fixture in (FIXTURE, COMPILATION):
+        assert wall.state(fixture)["recordings"] == withdraw.run_recordings(fixture)
+
+
+def test_a_verifier_answer_counts_before_any_human_decision(run):
+    text = (run / "pairs.csv").read_text().splitlines()
+    head = text[0].split(",")
+    rows = [dict(zip(head, line.split(","))) for line in text[1:]]
+    for r in rows:
+        if r["pair_id"] == "b_cam1~b_cam2":
+            r["verify_verdict"] = "different"
+    (run / "pairs.csv").write_text("\n".join([",".join(head)] + [",".join(r[c] for c in head) for r in rows]) + "\n")
+    p = {x["id"]: x for x in wall.state(run)["pairs"]}["b_cam1~b_cam2"]
+    assert (p["matcher"], p["computed"], p["band"]) == ("unresolved", "apart", "apart")
+    wall.append_audit(run, "b_cam1~b_cam2", "approve_merge")
+    p = {x["id"]: x for x in wall.state(run)["pairs"]}["b_cam1~b_cam2"]
+    assert p["band"] == "merged" and p["decision"]["action"] == "approve_merge"
+
+
+def test_a_compilation_is_its_own_recording_with_partial_pairs_and_its_spans():
+    s = wall.state(COMPILATION)
+    comp = next(r for r in s["recordings"] if r["status"] == "compilation")
+    assert comp["members"] == ["v_upload"] and len(comp["segments"]) == 3
+    bands = {p["id"]: p["band"] for p in s["pairs"]}
+    assert bands["p_orig~v_upload"] == "partial" and bands["p_copy~p_orig"] == "merged"
+    assert "p_orig~v_upload" not in [p["id"] for p in s["pairs"] if p["band"] == "unresolved"]
+
+
+def test_withdraw_view_names_the_lost_and_the_remaining_stretches_of_a_compilation(tmp_path):
+    (tmp_path / "claims.csv").write_text("clip,claim_id,claim_text\nv_upload,k1,seen in the upload\np_orig,k2,seen at the source\n")
+    s = wall.state(COMPILATION)
+    r1 = next(r["id"] for r in s["recordings"] if "p_orig" in r["members"])
+    out = wall.withdraw_view(COMPILATION, tmp_path / "claims.csv", r1)
+    k1 = out["kept"][0]
+    assert [(x["clip"], x["start_s"], x["end_s"]) for x in k1["lost_spans"]] == [("v_upload", 13.0, 52.0)]
+    assert [(x["start_s"], x["end_s"]) for x in k1["partial"]] == [(0.0, 2.0), (87.0, 105.0)]
+    assert [e["claim_id"] for e in out["lost"]] == ["k2"]
+
+
+def test_the_page_words_for_compilation_spans_are_there():
+    page = wall.PAGE.read_text()
+    assert "contains footage of" in page and "still supports it over" in page
