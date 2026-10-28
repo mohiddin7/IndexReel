@@ -9,6 +9,11 @@ Run 2 (eval/heldout2.md), blocks b17 to b24 in data/final2, run dir data/heldout
   PYTHONPATH=src python scripts/heldout.py prepare2
   PYTHONPATH=src python scripts/heldout.py score2      effective bands and cluster.resolve, as shipped
 
+Real re-film arm (eval/heldout2-refilm.md): the 16 final2 originals plus the re-films listed in
+data/final2_refilm/manifest.csv (columns file, original, framing, platform), run dir data/heldout2_refilm/run:
+  PYTHONPATH=src python scripts/heldout.py prepare_refilm
+  PYTHONPATH=src python scripts/heldout.py score_refilm
+
 Blocks b09 to b16 give families TNN (target) and NNN (look-alike); clip ids are <family>__<version>.
 """
 import csv
@@ -127,6 +132,59 @@ def score2(run=ROOT / "data" / "heldout2" / "run"):
     print("\n".join(out))
 
 
+REFILM = ROOT / "data" / "final2_refilm"
+
+
+def manifest():
+    return list(csv.DictReader(open(REFILM / "manifest.csv")))
+
+
+def prepare_refilm(d=ROOT / "data" / "heldout2_refilm"):
+    import shutil
+    out = d / "in"
+    out.mkdir(parents=True, exist_ok=True)
+    for b in range(17, 25):
+        for kind in "TN":
+            shutil.copy2(ROOT / "data" / "final2" / f"b{b}_{kind}.mp4", out / f"b{b}_{kind}.mp4")
+    for m in manifest():
+        shutil.copy2(REFILM / m["file"], out / f"refilm_{Path(m['file']).stem}{Path(m['file']).suffix}")
+
+
+def score_refilm(run=ROOT / "data" / "heldout2_refilm" / "run"):
+    from indexreel import cluster
+    rows = list(csv.DictReader(open(run / "pairs.csv")))
+    ids = [c["id"] for c in json.loads((run / "clips.json").read_text())["clips"]]
+    meta = {f"refilm_{Path(m['file']).stem}": m for m in manifest()}
+    src = lambda c: meta[c]["original"] if c in meta else c
+    recs, comps = cluster.resolve(ids, rows)
+    where = {m: r["id"] for r in recs for m in r["members"]}
+    hubs = {c["clip"] for c in comps}
+    eff = {r["pair_id"]: cluster.effective_band(r) for r in rows}
+    j = lambda r: eff[r["pair_id"]] == "merged" and not {r["a"], r["b"]} & hubs
+    found = {c: where[c] == where[m["original"]] for c, m in meta.items()}
+    k = sum(found.values())
+    lo, hi = wilson(k, len(found))
+    out = [f"1 re-films in the same recording as their own original {k}/{len(found)} (Wilson 95% {lo:.2f} to {hi:.2f})"]
+    neg = [r for r in rows if src(r["a"]) != src(r["b"])]
+    fm = [r["pair_id"] for r in neg if j(r)]
+    lo, hi = wilson(len(fm), len(neg))
+    mixed = [r["members"] for r in recs if len({src(m) for m in r["members"]}) > 1]
+    out.append(f"2 false merges (pairs) {len(fm)}/{len(neg)} (Wilson 95% {lo:.4f} to {hi:.4f}) {fm}; recordings mixing originals {len(mixed)} {mixed}")
+    for key in ("framing", "platform"):
+        g = {}
+        for c, m in meta.items():
+            g.setdefault(m[key], []).append(found[c])
+        out.append(f"by {key}: " + ", ".join(f"{v} {sum(x)}/{len(x)}" for v, x in sorted(g.items())))
+    own = {cluster.pair_id(c, m["original"]): c for c, m in meta.items()}
+    by_id = {r["pair_id"]: r for r in rows}
+    out.append("own-original pairs by band and verdict: " + str(Counter((by_id[p]["band"], by_id[p]["verify_verdict"] or "-") for p in own)))
+    out.append(f"matcher alone: own original merged {sum(by_id[p]['band'] == 'merged' for p in own)}/{len(own)}")
+    out.append("misses: " + str([(c, meta[c]["framing"], meta[c]["platform"], by_id[p]["band"], by_id[p]["aligned"], by_id[p]["verify_verdict"], by_id[p]["verify_reason"]) for p, c in own.items() if not found[c]]))
+    out.append(f"compilation flags (all false here) {len(hubs)} {sorted(hubs)}")
+    out.append(f"verify cost ${sum(float(r['verify_cost_usd'] or 0) for r in rows):.4f} at list prices")
+    print("\n".join(out))
+
+
 def selfcheck():
     rows = [{"band": "merged", "verify_verdict": ""}, {"band": "unresolved", "verify_verdict": "same"},
             {"band": "unresolved", "verify_verdict": "abstain"}, {"band": "apart", "verify_verdict": ""}]
@@ -137,4 +195,5 @@ def selfcheck():
 
 if __name__ == "__main__":
     {"prepare": prepare, "score": score, "selfcheck": selfcheck, "score2": score2,
+     "prepare_refilm": prepare_refilm, "score_refilm": score_refilm,
      "prepare2": lambda: prepare(ROOT / "data" / "final2", ROOT / "data" / "heldout2", range(17, 25))}[sys.argv[1]]()
