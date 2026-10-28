@@ -25,6 +25,26 @@ All times are seconds from the start of the clip, written with at most three dec
 
 `id` is the file stem and is unique; it contains no `~`. `crop.quad` is the median accepted quadrilateral over the sampled frames, in source pixels (clockwise from top left), or `null` when no localiser result was used (`method: "none"`). `fallback_share` is the fraction of sampled frames where the localiser found nothing and the whole frame was used.
 
+A clip that came from a post has a `source` key (absent for a local file):
+
+```
+"source": {"platform": "x", "url": "https://x.com/example_account/status/1234567890123456789",
+           "post_id": "1234567890123456789", "account": "example_account",
+           "posted_at": "2026-10-27T11:00:00Z", "caption": "Two angles of one fireworks show #test",
+           "fetched_utc": "2026-10-28T09:30:00Z"}
+```
+
+All keys are strings and always present, `null` where the post does not say. `platform` is `x` for twitter.com and x.com posts, otherwise the lowercase extractor name. `account` has no `@`. `posted_at` is UTC ISO 8601, or only the date if that is all that is known. `caption` is cut at 2000 characters. `indexreel match` copies the sidecar `<clip>.source.json` that sits next to the clip, unchanged; nothing else of the post is kept.
+
+## Fetching posts
+
+`indexreel fetch --out <clips dir> <post URL or text file of URLs>...` downloads the videos of the posts it is given with yt-dlp and writes `<id>.<ext>` and `<id>.source.json` into the clips directory. The id is `<yt-dlp extractor>_<post id>` (for example `twitter_1234567890123456789`); a post with several videos gives up to four clips. An existing clip is never overwritten, so ids stay unique in a directory.
+
+- **Accepted URLs:** https post URLs on x.com or twitter.com (path contains `/status/`), at most 20 per call; other hosts only with `--allow-host`. Profile and search URLs, other schemes and URLs with user information are refused with exit code 2 before anything is downloaded.
+- **No credentials:** yt-dlp runs with an argument list, `--ignore-config --no-netrc`, no cookies, `--max-filesize 300M`; only public posts can be fetched. The raw info yt-dlp writes (signed media URLs and more) is deleted after the fields above are taken from it.
+- **Output**, one line per event on stdout: `fetch: ok <url> -> <file>`, `fetch: skip <url> already fetched as <id>`, `fetch: error <url> <code>: <message>` and a last line `fetch: done <n> ok, <n> skipped, <n> failed`. Codes: `bad_url`, `private_or_login`, `not_found`, `no_video`, `rate_limited`, `network`, `other`; the message is the first `ERROR` line of yt-dlp, cut to 200 characters.
+- **Exit code:** 0 when nothing failed, 1 when at least one URL failed (the others were still fetched), 2 for a usage error or a refused URL.
+
 ## pairs.csv
 
 Columns, in this order:

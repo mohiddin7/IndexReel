@@ -1,0 +1,25 @@
+{
+ "id": "1234567890123456789",
+ "extractor": "twitter",
+ "extractor_key": "Twitter",
+ "title": "Example Account - Two angles of one fireworks show #test",
+ "description": "Two angles of one fireworks show #test",
+ "uploader": "Example Account",
+ "uploader_id": "example_account",
+ "timestamp": 1793098800,
+ "upload_date": "20261027",
+ "webpage_url": "https://x.com/example_account/status/1234567890123456789",
+ "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1280x720/a.mp4?tag=12&token=SECRET",
+ "http_headers": {
+  "Authorization": "Bearer SECRET",
+  "User-Agent": "x"
+ },
+ "formats": [
+  {
+   "url": "https://video.twimg.com/x.mp4?token=SECRET",
+   "height": 720
+  }
+ ],
+ "duration": 14.2,
+ "note": "invented example of the fields yt-dlp writes; values are made up"
+}

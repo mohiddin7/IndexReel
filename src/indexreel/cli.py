@@ -24,7 +24,8 @@ PAIR_COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s",
                 "verify_cost_usd", "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s"]
 THUMB = (320, 180)
 CACHE = Path.home() / ".cache" / "indexreel" / "match"
-STAGES = [("verify", "indexreel.verify", "judge the unresolved pairs of a run"),
+STAGES = [("fetch", "indexreel.fetch", "download the videos of posts you name"),
+          ("verify", "indexreel.verify", "judge the unresolved pairs of a run"),
           ("withdraw", "indexreel.withdraw", "list the claims that lose video support when a recording is withdrawn"),
           ("wall", "indexreel.wall", "open a run in a local browser page")]
 
@@ -106,6 +107,12 @@ def analyse(path, net, theta, model_sha, cache):
     return meta, plain, mirror, thumbs, s["quads"]
 
 
+def load_source(path):
+    """The sidecar `indexreel fetch` wrote next to a clip (<stem>.source.json), or None for a local file."""
+    f = Path(path).with_suffix(".source.json")
+    return json.loads(f.read_text()) if f.exists() else None
+
+
 def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THETA, argv="", cache=CACHE):
     out = Path(out)
     (out / "frames").mkdir(parents=True, exist_ok=True)
@@ -119,7 +126,8 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         info.append({"id": p.stem, "path": str(p.resolve()), "duration_s": round(meta["duration_s"], 3),
                      "fps": round(meta["fps"], 3), "width": meta["width"], "height": meta["height"],
                      "frames_sampled": len(quads),
-                     "crop": {"method": "opencv" if q else "none", "quad": q, "fallback_share": round(fallback, 3)}})
+                     "crop": {"method": "opencv" if q else "none", "quad": q, "fallback_share": round(fallback, 3)},
+                     **({"source": src} if (src := load_source(p)) else {})})
         print(f"{p.stem}: {len(quads)} frames, localiser fallback {fallback:.0%}", flush=True)
     dur = {c["id"]: c["duration_s"] for c in info}
 
