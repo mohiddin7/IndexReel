@@ -100,6 +100,7 @@ def test_a_cheap_miss_inside_a_recording_is_re_asked_and_cleared(run, tmp_path):
     assert asked == set(A_FAMILY)  # the conflicting pair and both join edges of that recording, both orders each
     assert recordings(run)[0] == ["a_copy", "a_orig", "a_refilm"]
     assert after["a_copy~a_refilm"]["verify_same_event"] == "yes"  # from the full-fidelity answers
+    assert ".;" not in after["a_copy~a_refilm"]["verify_reason"]  # FakeJudge's detail is a bare phrase; see below
     assert spent == pytest.approx(3 * 0.004 + 6 * 0.02)  # three group requests (b_cam1 and the a family), six full calls
     assert total == pytest.approx(sum(float(r["verify_cost_usd"] or 0) for r in after.values()))
 
@@ -201,3 +202,13 @@ def test_reasons_keep_whole_sentences():
 
 def test_same_event_across_orders():
     assert [verify.same_event(x) for x in (["yes", "yes"], ["no", "yes"], ["no", None], [], [None])] == ["yes", "unsure", "no", "", ""]
+
+
+def test_reason_joins_the_sound_note_without_doubled_punctuation(run, tmp_path):
+    class Sentence(FakeJudge):
+        def group(self, anchor, cands):
+            answers, cost = super().group(anchor, cands)
+            return [dict(a, shared_detail="The same tree is visible.") for a in answers], cost
+
+    verify.verify(run, Sentence(cheap={"a_copy~a_refilm": "yes"}), verify.Cache(tmp_path / "cache"), sound={})
+    assert rows(run)["a_copy~a_refilm"]["verify_reason"] == "The same tree is visible; sound not usable"

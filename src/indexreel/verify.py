@@ -320,7 +320,7 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
         note = "re-asked, " if full.get(p) else ""
         r.update(verify_verdict=v, verify_confidence=f"{agree:.2f}", verify_cost_usd=f"{cost[p]:.5f}",
                  verify_same_event=same_event(events.get(p, [])),
-                 verify_reason=f"{note}{sentences(detail.get(p) or 'no shared detail named')}; sound "
+                 verify_reason=f"{note}{sentences(detail.get(p) or 'no shared detail named').rstrip('.!?;, ')}; sound "
                                + ("not usable" if s is None else f"{'matches' if s >= AUDIO_MATCH else 'differs'} ({s:.3f})"))
     fd, tmp = tempfile.mkstemp(dir=run, suffix=".csv")
     with os.fdopen(fd, "w", newline="") as f:
