@@ -170,6 +170,24 @@ One JSON object per line, appended and never edited:
 
 `action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Decisions about a clip carry `"pair": null` and `"clip": "<id>"`: `confirm_compilation` or `dismiss_compilation` (see Compilations). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file with `cluster.resolve(clip_ids, rows, audit)`, which returns the recordings and the compilations; `clusters.json` holds the matcher's own result without human decisions (`resolve` with an empty audit).
 
+## claims.csv
+
+`indexreel claims <run dir> [--max-usd 0.10]` asks Muse Spark (the verify stage's client, text only) which claims the captions in `clips.json` (`source.caption`) make about their footage, and writes `claims.csv`, one row per claim and citing clip:
+
+| column | meaning |
+|---|---|
+| `clip` | the citing clip's id |
+| `claim_id` | `c1`, `c2`, ...: one id per claim; a claim several captions make has one id and one row per citing clip (the grouping is Spark's) |
+| `claim_text` | the claim as a short neutral sentence |
+| `quote` | the words of that clip's caption that make the claim, an exact substring of it |
+| `status` | `suggested` when written; a person approving or rejecting a row sets it (`approved`, `rejected`) |
+
+- Only claims about what the footage shows: where, when, what happens. Remarks about the post itself (test notices, source credits, links, hashtags, how it was edited or re-filmed) are left out by the prompt.
+- A citation whose `quote` is not an exact substring of that clip's caption is dropped and logged (`claims: dropped ...`); a claim left with no citation is not written. This is checked in code, whatever the model answers.
+- Clips without a caption make no claims; a run with no caption makes no request and writes only the header.
+- One request covers every caption of the run. It is made only if its worst case (every output token used) is within `--max-usd`; otherwise nothing is written. The answer is cached by model, prompt and captions (`~/.cache/indexreel/claims`), so a rerun costs nothing and needs no key. The last line is `claims: spent $X now; the answer used cost $Y at list prices`.
+- `withdraw` reads `clip`, `claim_id` and `claim_text` and ignores the other columns, so it counts suggested rows as well; filtering by `status` is the reader's choice.
+
 ## run.json
 
 `{"version": 1, "command": "...", "created_utc": "...", "git_commit": "...", "n_clips": 8, "sample": "1 frame per second", "thresholds": {"merge_at": ..., "floor": ...}, "localiser": {"method": "opencv", "theta": 0.9}, "sscd_model_sha256": "..."}`
