@@ -77,3 +77,146 @@ def recordings(clip_ids, pairs):
         out.append({"id": f"r{i}", "members": members, "status": status, "evidence_pairs": ev,
                     "unresolved_pairs": un, "conflicts": co})
     return out
+
+
+MIN_CORE = 2.0  # seconds: a source's core span in a compilation must last at least this long (set on the build split)
+TOL = 0.5       # seconds: spans overlapping by more than this cover the same stretch (spans lie on a 1 s grid)
+
+
+def _core(row, clip):
+    """The core span of a pair in the timeline of `clip`, or None."""
+    side = "a" if row["a"] == clip else "b"
+    s, e = row.get(f"core_{side}_start_s"), row.get(f"core_{side}_end_s")
+    return (float(s), float(e)) if s not in (None, "") and e not in (None, "") else None
+
+
+def _find(root, c):
+    while root.setdefault(c, c) != c:
+        root[c] = root[root[c]]
+        c = root[c]
+    return c
+
+
+def _stretches(spans):
+    """Stretches of a clip's timeline from (start, end, pair id, strength) spans, strongest pair first.
+
+    A span that overlaps an existing stretch by more than TOL belongs to the one it overlaps most (copies of one
+    recording, or a pair with another clip that also contains several sources); any other span starts a stretch.
+    Weak spans therefore cannot join two strong ones into one stretch. Returns lists of (start, end, pair id).
+    """
+    out = []  # [start, end, members] of the strongest span of each stretch
+    for st, en, key, _ in sorted(spans, key=lambda s: (-s[3], s[0], s[2])):
+        best = max(out, key=lambda t: min(en, t[1]) - max(st, t[0]), default=None)
+        if best and min(en, best[1]) - max(st, best[0]) > TOL:
+            best[2].append((st, en, key))
+        else:
+            out.append([st, en, [(st, en, key)]])
+    return [t[2] for t in sorted(out, key=lambda t: (t[0], t[1]))]
+
+
+def _spans(x, rows, bands, skip=()):
+    """(start, end, pair id, aligned) of the core span in x of every merged or unresolved pair of x lasting MIN_CORE.
+
+    Pairs with a clip in `skip` are left out: a candidate compilation is not a source of another clip.
+    """
+    out = []
+    for p, b in bands.items():
+        if b in ("merged", "unresolved") and x in (rows[p]["a"], rows[p]["b"]) \
+                and not {rows[p]["a"], rows[p]["b"]} & set(skip) - {x}:
+            c = _core(rows[p], x)
+            if c and c[1] - c[0] >= MIN_CORE:
+                out.append((c[0], c[1], p, float(rows[p].get("aligned") or 0)))
+    return out
+
+
+def _segments(x, rows, bands, root, confirmed):
+    """The sources clip x is a compilation of as segments, or None.
+
+    `root` joins the clips that other merged links connect, leaving out every candidate hub; `confirmed` are the
+    compilations already found, whose pairs with x are not evidence. A source is a group of
+    x's partners in one such component; a stretch of x's timeline is covered by the sources whose pairs have a core
+    span there. Stretches that share a source are one source, so x is a compilation only if its stretches reach
+    two or more separate sources: it matches different recordings over different parts of its own timeline. A jump
+    cut of one recording reaches one source twice and is not one. Returns (segments, number of stretches).
+    """
+    other = lambda p: rows[p]["b"] if rows[p]["a"] == x else rows[p]["a"]
+    stretches = _stretches(_spans(x, rows, bands, confirmed))
+    if len(stretches) < 2:
+        return None
+    parent = list(range(len(stretches)))
+    seen = {}
+    for i, st in enumerate(stretches):
+        for _, _, p in st:
+            j = seen.setdefault(_find(root, other(p)), i)
+            parent[_find_list(parent, i)] = _find_list(parent, j)
+    if len({_find_list(parent, i) for i in range(len(stretches))}) < 2:
+        return None
+    groups = {}
+    for st in stretches:
+        for a, b, p in st:
+            groups.setdefault(_find(root, other(p)), []).append((a, b, p))
+    segs = [{"links": sorted(p for _, _, p in g), "start_s": min(a for a, _, _ in g), "end_s": max(b for _, b, _ in g),
+             "clips": sorted({other(p) for _, _, p in g})} for g in groups.values()]
+    return sorted(segs, key=lambda g: (g["start_s"], g["end_s"])), len(stretches)
+
+
+def _find_list(parent, i):
+    while parent[i] != i:
+        i = parent[i]
+    return i
+
+
+def resolve(clip_ids, rows, audit=()):
+    """Recordings and compilations from pairs.csv rows plus the audit: the one recompute path every reader uses.
+
+    Order: effective band of every pair, human decisions on top, compilation detection, connected components.
+    A compilation clip keeps its links to its sources but none of them joins anything or counts as undecided (they
+    are `partial`); it stays a recording of its own with status `compilation`. Returns (recordings, compilations),
+    compilations being [{"clip", "recording", "segments": [{"recording", "links", "start_s", "end_s"}]}] with the
+    spans in the compilation's own timeline.
+
+    Detection: a clip with two or more stretches is a candidate. Candidates are confirmed one at a time, the one
+    with the most stretches first, and a confirmed compilation is no evidence for the others (a source shared by
+    several compilations would otherwise look like one itself). Sources are found with all candidates left out of
+    the graph, because two compilations that share sources would connect them. A candidate whose stretches all
+    reach one source (a jump cut) or that lost its evidence is dropped and joins as an ordinary clip.
+    """
+    by_id = {r["pair_id"]: r for r in rows}
+    bands = apply_audit({p: effective_band(r) for p, r in by_id.items()}, audit)
+    pending = {x for x in clip_ids if len(_stretches(_spans(x, by_id, bands))) >= 2}
+    hubs, segs = [], {}
+    while pending:
+        root = {}
+        for p, b in bands.items():
+            if b == "merged" and not {by_id[p]["a"], by_id[p]["b"]} & (pending | set(hubs)):
+                root[_find(root, by_id[p]["a"])] = _find(root, by_id[p]["b"])
+        found = {x: _segments(x, by_id, bands, root, hubs) for x in clip_ids if x in pending}
+        valid = {x: f for x, f in found.items() if f}
+        if not valid:
+            break
+        x = max(valid, key=lambda c: (valid[c][1], sum(g["end_s"] - g["start_s"] for g in valid[c][0])))
+        hubs.append(x)
+        segs[x] = valid[x][0]
+        pending.discard(x)
+    while True:  # the candidates that were left out of the graph no longer are: check each compilation again
+        root = {}
+        for p, b in bands.items():
+            if b == "merged" and not {by_id[p]["a"], by_id[p]["b"]} & set(segs):
+                root[_find(root, by_id[p]["a"])] = _find(root, by_id[p]["b"])
+        again = {x: _segments(x, by_id, bands, root, set(segs) - {x}) for x in list(segs)}
+        lost = [x for x, f in again.items() if f is None]
+        if not lost:
+            break
+        for x in lost:
+            del segs[x]
+    segs = {x: again[x][0] for x in segs}
+    partial = {p for p, b in bands.items() if b != "apart" and (by_id[p]["a"] in segs or by_id[p]["b"] in segs)}
+    rec = recordings(clip_ids, [(p, r["a"], r["b"], "partial" if p in partial else bands[p]) for p, r in by_id.items()])
+    where = {c: r["id"] for r in rec for c in r["members"]}
+    for r in rec:
+        if r["members"][0] in segs:  # a compilation's links are all partial, so its recording has one clip
+            r["status"] = "compilation"
+    comps = [{"clip": x, "recording": where[x],
+              "segments": [{"recording": where[g["clips"][0]], "links": g["links"], "start_s": g["start_s"],
+                            "end_s": g["end_s"]} for g in segs[x]]} for x in clip_ids if x in segs]
+    return rec, comps

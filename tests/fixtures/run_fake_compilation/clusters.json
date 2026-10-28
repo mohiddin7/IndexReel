@@ -1,0 +1,96 @@
+{
+ "version": 1,
+ "thresholds": {
+  "merge_at": 0.55,
+  "floor": 0.2,
+  "score_used": "aligned"
+ },
+ "recordings": [
+  {
+   "id": "r1",
+   "members": [
+    "p_orig",
+    "p_copy"
+   ],
+   "status": "merged",
+   "evidence_pairs": [
+    "p_copy~p_orig"
+   ],
+   "unresolved_pairs": [],
+   "conflicts": []
+  },
+  {
+   "id": "r2",
+   "members": [
+    "q_cam"
+   ],
+   "status": "single",
+   "evidence_pairs": [],
+   "unresolved_pairs": [],
+   "conflicts": []
+  },
+  {
+   "id": "r3",
+   "members": [
+    "r_cam"
+   ],
+   "status": "single",
+   "evidence_pairs": [],
+   "unresolved_pairs": [],
+   "conflicts": []
+  },
+  {
+   "id": "r4",
+   "members": [
+    "v_upload"
+   ],
+   "status": "compilation",
+   "evidence_pairs": [],
+   "unresolved_pairs": [],
+   "conflicts": []
+  },
+  {
+   "id": "r5",
+   "members": [
+    "z_alone"
+   ],
+   "status": "single",
+   "evidence_pairs": [],
+   "unresolved_pairs": [],
+   "conflicts": []
+  }
+ ],
+ "compilations": [
+  {
+   "clip": "v_upload",
+   "recording": "r4",
+   "segments": [
+    {
+     "recording": "r2",
+     "links": [
+      "q_cam~v_upload"
+     ],
+     "start_s": 0.0,
+     "end_s": 2.0
+    },
+    {
+     "recording": "r1",
+     "links": [
+      "p_copy~v_upload",
+      "p_orig~v_upload"
+     ],
+     "start_s": 13.0,
+     "end_s": 52.0
+    },
+    {
+     "recording": "r3",
+     "links": [
+      "r_cam~v_upload"
+     ],
+     "start_s": 87.0,
+     "end_s": 105.0
+    }
+   ]
+  }
+ ]
+}

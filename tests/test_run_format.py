@@ -7,19 +7,23 @@ import pytest
 
 from indexreel import cluster
 
-RUN = Path(__file__).parent / "fixtures" / "run_fake"
+FIXTURES = Path(__file__).parent / "fixtures"
 COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s", "a_start_s", "a_end_s", "b_start_s",
            "b_end_s", "band", "evidence", "evidence_a_s", "verify_verdict", "verify_confidence", "verify_reason",
            "verify_cost_usd", "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s"]
 
 
-@pytest.fixture(scope="module")
-def run():
-    clips = json.loads((RUN / "clips.json").read_text())["clips"]
-    rows = list(csv.DictReader(open(RUN / "pairs.csv")))
-    clusters = json.loads((RUN / "clusters.json").read_text())
-    audit = [json.loads(line) for line in (RUN / "audit.jsonl").read_text().splitlines()]
-    return clips, rows, clusters, audit
+def load(d):
+    clips = json.loads((d / "clips.json").read_text())["clips"]
+    rows = list(csv.DictReader(open(d / "pairs.csv")))
+    clusters = json.loads((d / "clusters.json").read_text())
+    audit = [json.loads(line) for line in (d / "audit.jsonl").read_text().splitlines()]
+    return clips, rows, clusters, audit, d
+
+
+@pytest.fixture(scope="module", params=["run_fake", "run_fake_compilation"])
+def run(request):
+    return load(FIXTURES / request.param)
 
 
 def triples(rows, bands=None):
@@ -27,7 +31,7 @@ def triples(rows, bands=None):
 
 
 def test_pairs_follow_the_format(run):
-    clips, rows, _, _ = run
+    clips, rows, _, _, d = run
     ids = [c["id"] for c in clips]
     assert list(rows[0]) == COLUMNS
     assert sorted((r["a"], r["b"]) for r in rows) == sorted(combinations(sorted(ids), 2))
@@ -36,21 +40,21 @@ def test_pairs_follow_the_format(run):
         assert abs(float(r["b_start_s"]) - float(r["a_start_s"]) - float(r["offset_s"])) < 1e-6
         assert bool(r["evidence"]) == (r["band"] != "apart")
         if r["evidence"]:
-            assert (RUN / r["evidence"]).exists()
+            assert (d / r["evidence"]).exists()
             assert len(r["evidence_a_s"].split(";")) == 3
 
 
 def test_bands_and_clusters_follow_the_rules(run):
-    _, rows, clusters, _ = run
+    _, rows, clusters, _, _ = run
     th = clusters["thresholds"]
     for r in rows:
         assert r["band"] == cluster.band(float(r["aligned"]), float(r["score"]), th["merge_at"], th["floor"])
     ids = [c["id"] for c in run[0]]
-    assert clusters["recordings"] == cluster.recordings(ids, triples(rows))
+    assert (clusters["recordings"], clusters["compilations"]) == cluster.resolve(ids, rows, [])
 
 
-def test_audit_decisions_change_the_clusters(run):
-    clips, rows, _, audit = run
+def test_audit_decisions_change_the_clusters():
+    clips, rows, _, audit, _ = load(FIXTURES / "run_fake")
     bands = cluster.apply_audit({r["pair_id"]: r["band"] for r in rows}, audit)
     rec = {r["id"]: r for r in cluster.recordings([c["id"] for c in clips], triples(rows, bands))}
     assert rec["r1"]["status"] == "merged"  # the one unresolved pair inside it was approved
@@ -78,3 +82,15 @@ def test_band_edges():
     ("apart", "", "apart")])
 def test_effective_band(band, verdict, expected):
     assert cluster.effective_band({"band": band, "verify_verdict": verdict}) == expected
+
+
+def test_a_compilation_is_its_own_recording_and_names_its_sources(run):
+    _, _, clusters, _, d = run
+    if d.name != "run_fake_compilation":
+        assert clusters["compilations"] == []
+        return
+    (c,) = clusters["compilations"]
+    by_id = {r["id"]: r for r in clusters["recordings"]}
+    assert by_id[c["recording"]]["status"] == "compilation" and by_id[c["recording"]]["members"] == [c["clip"]]
+    assert sorted(by_id[s["recording"]]["members"][0] for s in c["segments"]) == ["p_orig", "q_cam", "r_cam"]
+    assert [s["start_s"] for s in c["segments"]] == sorted(s["start_s"] for s in c["segments"])

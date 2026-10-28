@@ -1,0 +1,16 @@
+pair_id,a,b,score,aligned,mirrored,offset_s,a_start_s,a_end_s,b_start_s,b_end_s,band,evidence,evidence_a_s,verify_verdict,verify_confidence,verify_reason,verify_cost_usd,core_a_start_s,core_a_end_s,core_b_start_s,core_b_end_s
+p_copy~p_orig,p_copy,p_orig,0.89,0.89,0,0,0.0,40.0,0.0,40.0,merged,frames/p_copy~p_orig.jpg,0.5;20.0;39.5,,,,,0,40,0,40
+p_copy~q_cam,p_copy,q_cam,0.07,0.04,0,0,0.0,14.0,0.0,14.0,apart,,,,,,,,,,
+p_copy~r_cam,p_copy,r_cam,0.07,0.04,0,0,0.0,40.0,0.0,40.0,apart,,,,,,,,,,
+p_copy~v_upload,p_copy,v_upload,0.76,0.7,0,13,0.0,40.0,13.0,53.0,merged,frames/p_copy~v_upload.jpg,0.5;20.0;39.5,,,,,0,39,13,52
+p_copy~z_alone,p_copy,z_alone,0.07,0.04,0,0,0.0,20.0,0.0,20.0,apart,,,,,,,,,,
+p_orig~q_cam,p_orig,q_cam,0.07,0.04,0,0,0.0,14.0,0.0,14.0,apart,,,,,,,,,,
+p_orig~r_cam,p_orig,r_cam,0.07,0.04,0,0,0.0,40.0,0.0,40.0,apart,,,,,,,,,,
+p_orig~v_upload,p_orig,v_upload,0.76,0.71,0,13,0.0,40.0,13.0,53.0,merged,frames/p_orig~v_upload.jpg,0.5;20.0;39.5,,,,,0,39,13,52
+p_orig~z_alone,p_orig,z_alone,0.07,0.04,0,0,0.0,20.0,0.0,20.0,apart,,,,,,,,,,
+q_cam~r_cam,q_cam,r_cam,0.07,0.04,0,0,0.0,14.0,0.0,14.0,apart,,,,,,,,,,
+q_cam~v_upload,q_cam,v_upload,0.61,0.47,0,-12,12,14.0,0,2.0,unresolved,frames/q_cam~v_upload.jpg,12.5;13.0;13.5,,,,,12,14,0,2
+q_cam~z_alone,q_cam,z_alone,0.07,0.04,0,0,0.0,14.0,0.0,14.0,apart,,,,,,,,,,
+r_cam~v_upload,r_cam,v_upload,0.45,0.43,0,64,0.0,61.0,64.0,125.0,unresolved,frames/r_cam~v_upload.jpg,0.5;30.5;60.5,,,,,23,41,87,105
+r_cam~z_alone,r_cam,z_alone,0.07,0.04,0,0,0.0,20.0,0.0,20.0,apart,,,,,,,,,,
+v_upload~z_alone,v_upload,z_alone,0.07,0.04,0,0,0.0,20.0,0.0,20.0,apart,,,,,,,,,,

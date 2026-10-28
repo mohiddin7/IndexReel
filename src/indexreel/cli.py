@@ -146,10 +146,10 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         w.writerows(rows)
 
     th = {"merge_at": merge_at, "floor": floor}
-    rec = cluster.recordings([c["id"] for c in info], [(r["pair_id"], r["a"], r["b"], r["band"]) for r in rows])
+    rec, comps = cluster.resolve([c["id"] for c in info], rows)
     (out / "clips.json").write_text(json.dumps({"version": 1, "clips": info}, indent=1))
     (out / "clusters.json").write_text(json.dumps({"version": 1, "thresholds": {**th, "score_used": "aligned"},
-                                                   "recordings": rec}, indent=1))
+                                                   "recordings": rec, "compilations": comps}, indent=1))
     (out / "audit.jsonl").touch()  # human decisions live here; never truncated
     (out / "run.json").write_text(json.dumps({
         "version": 1, "command": argv, "created_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -167,7 +167,7 @@ def show(rows, rec):
                   f"{r['a_start_s']:4.0f}-{r['a_end_s']:4.0f} s  {r['b_start_s']:4.0f}-{r['b_end_s']:4.0f} s  {r['band']}")
     n = {b: sum(r["band"] == b for r in rows) for b in ("merged", "unresolved", "apart")}
     print(f"\n{len(rows)} pairs: {n['merged']} merged, {n['unresolved']} unresolved, {n['apart']} apart")
-    print(f"{len(rec)} recordings: " + ", ".join(f"{r['id']}[{len(r['members'])}{'?' if r['status'] == 'unresolved' else ''}]" for r in rec))
+    print(f"{len(rec)} recordings: " + ", ".join(f"{r['id']}[{len(r['members'])}{'?' if r['status'] == 'unresolved' else 'C' if r['status'] == 'compilation' else ''}]" for r in rec))
 
 
 def main(argv=None):

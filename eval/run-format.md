@@ -97,7 +97,26 @@ A merged pair the verifier doubts goes back to a person instead of staying merge
                  "evidence_pairs": ["a~b"], "unresolved_pairs": ["b~c"], "conflicts": []}]}
 ```
 
-A recording is a connected component of the `merged` pairs. `status` is `unresolved` if any `unresolved` pair touches one of its clips, otherwise `merged` for two or more clips and `single` for one. `conflicts` lists `apart` pairs whose two clips are in the same recording: merging is not transitive, and the format keeps the contradiction instead of hiding it. Recordings are numbered `r1, r2, ...` in the order of their first clip in `clips.json`. `src/indexreel/cluster.py` computes this from `pairs.csv`.
+A recording is a connected component of the `merged` pairs. `status` is `unresolved` if any `unresolved` pair touches one of its clips, otherwise `merged` for two or more clips and `single` for one; a compilation (below) is `compilation`. `conflicts` lists `apart` pairs whose two clips are in the same recording: merging is not transitive, and the format keeps the contradiction instead of hiding it. Recordings are numbered `r1, r2, ...` in the order of their first clip in `clips.json`. `src/indexreel/cluster.py` computes this from `pairs.csv`.
+
+`clusters.json` also holds `"compilations": [...]` (empty, or absent in older runs) as described in the next section.
+
+## Compilations
+
+A clip made of consecutive pieces of several recordings links to each of them, and every link is correct for its piece, yet approving them together would join recordings that have nothing in common. `cluster.resolve` therefore looks for clips whose links reach different recordings over different parts of their own timeline.
+
+- A pair's core span in a clip (`core_*` columns) is where the two clips match. A clip's *stretches* are the groups of its merged or unresolved pairs whose core spans (at least 2 s long) overlap by more than 0.5 s, strongest pair (`aligned`) first; copies of one recording match the same stretch. Core spans lie on the 1 s sampling grid.
+- A clip with two or more stretches is a candidate. Its partners are grouped into sources by the merged links that do not touch a candidate; stretches that reach a common source count as one. The clip is a **compilation** when its stretches reach two or more sources. A jump cut of one recording reaches one source twice and is not one. Candidates are confirmed one at a time, most stretches first, and a confirmed compilation is not evidence for another clip; each confirmed clip is then checked again against the final graph.
+- A compilation's links to its sources (merged or unresolved) are `partial`: they join nothing and do not count as undecided. It is a recording of its own, with `status` `compilation`, and appears in `compilations`:
+
+```
+{"clip": "v_upload", "recording": "r4",
+ "segments": [{"recording": "r2", "links": ["q_cam~v_upload"], "start_s": 0, "end_s": 2}, ...]}
+```
+
+`start_s` and `end_s` are in the compilation's own timeline, segments are in time order, and `recording` is the source's recording. The rule runs after the verifier and after the audit, so approving every link of a compilation does not join its sources; a person can still split or approve a link between the sources themselves.
+
+The constants (core cosine 0.4, at least 2 s, overlap 0.5 s) were set on the build split of `eval/compilation.md`. `tests/fixtures/run_fake_compilation/` is an invented run with one compilation of three recordings.
 
 ## audit.jsonl
 
@@ -107,7 +126,7 @@ One JSON object per line, appended and never edited:
 {"ts": "2026-10-29T14:03:11Z", "actor": "human", "action": "approve_merge", "pair": "a~b", "note": ""}
 ```
 
-`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file (`cluster.apply_audit`, then `cluster.recordings`); `clusters.json` holds the matcher's own result without human decisions.
+`action` is `approve_merge` (the pair becomes `merged`), `split` (the pair becomes `apart`) or `reset` (back to the computed band). Entries apply in file order; the last entry for a pair takes effect. Whoever shows or exports the clusters recomputes them from `pairs.csv` plus this file with `cluster.resolve(clip_ids, rows, audit)`, which returns the recordings and the compilations; `clusters.json` holds the matcher's own result without human decisions (`resolve` with an empty audit).
 
 ## run.json
 

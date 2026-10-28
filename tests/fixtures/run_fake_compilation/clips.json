@@ -1,0 +1,89 @@
+{
+ "version": 1,
+ "clips": [
+  {
+   "id": "p_orig",
+   "path": "clips/p_orig.mp4",
+   "duration_s": 40.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 40,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 1.0
+   }
+  },
+  {
+   "id": "p_copy",
+   "path": "clips/p_copy.mp4",
+   "duration_s": 40.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 40,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 1.0
+   }
+  },
+  {
+   "id": "q_cam",
+   "path": "clips/q_cam.mp4",
+   "duration_s": 14.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 14,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 1.0
+   }
+  },
+  {
+   "id": "r_cam",
+   "path": "clips/r_cam.mp4",
+   "duration_s": 70.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 70,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 1.0
+   }
+  },
+  {
+   "id": "v_upload",
+   "path": "clips/v_upload.mp4",
+   "duration_s": 125.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 125,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 1.0
+   }
+  },
+  {
+   "id": "z_alone",
+   "path": "clips/z_alone.mp4",
+   "duration_s": 20.0,
+   "fps": 25.0,
+   "width": 1280,
+   "height": 720,
+   "frames_sampled": 20,
+   "crop": {
+    "method": "none",
+    "quad": null,
+    "fallback_share": 1.0
+   }
+  }
+ ]
+}
