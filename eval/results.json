@@ -9,8 +9,8 @@
   {"group": "Held-out run 1 (16 families, 48 versions, run once)", "label": "Pairs of different recordings joined", "k": 2, "n": 1080, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/report.md", "note": "Two recordings mix a target with its look-alike, both simulated re-films."},
   {"group": "Held-out run 1 (16 families, 48 versions, run once)", "label": "Pairs of the same recording joined", "k": 48, "n": 48, "bar": "at least 40 of 48", "bar_op": ">=", "bar_k": 40, "source": "eval/report.md", "note": "The matcher alone joined 35 of 48."},
 
-  {"group": "Held-out run 2 (16 fresh families)", "label": "Pairs of different recordings joined", "bar": "0", "source": "eval/heldout2.md"},
-  {"group": "Held-out run 2 (16 fresh families)", "label": "Pairs of the same recording joined", "bar": "at least 40 of 48", "source": "eval/heldout2.md"},
+  {"group": "Held-out run 2 (16 fresh families)", "label": "Pairs of different recordings joined", "k": 0, "n": 1080, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/report2.md", "note": "No recording mixes two families; no compilation flag."},
+  {"group": "Held-out run 2 (16 fresh families)", "label": "Pairs of the same recording joined", "k": 48, "n": 48, "bar": "at least 40 of 48", "bar_op": ">=", "bar_k": 40, "source": "eval/report2.md", "note": "The matcher alone joined 34 of 48; no merged pair was demoted by the verifier."},
 
   {"group": "Compilations (frozen test: 24 compilations, 16 controls)", "label": "Compilations flagged, naming only their own families", "k": 19, "n": 24, "bar": "at least 18 of 24", "bar_op": ">=", "bar_k": 18, "source": "eval/compilation-result.md"},
   {"group": "Compilations (frozen test: 24 compilations, 16 controls)", "label": "Recordings mixing families after approving the correct links", "k": 1, "bar": "0", "bar_op": "<=", "bar_k": 0, "result": "1 recording (T04 and N04); 0 without approvals", "source": "eval/compilation-result.md"},
