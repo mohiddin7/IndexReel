@@ -13,6 +13,7 @@ verdict: a soundtrack can be reused under another picture or replaced on a copy.
 Answers are cached by clip content, prompt and settings, so a rerun costs nothing.
 """
 import argparse
+import base64
 import csv
 import hashlib
 import itertools
@@ -83,6 +84,25 @@ class Cache:
         tmp.replace(self.root / f"{key}.json")
 
 
+def encode(path, size, workdir):
+    """The clip re-encoded to a shorter side of `size` px, cached by content in workdir."""
+    out = Path(workdir) / f"{size}" / f"{sha(path)}.mp4"
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        vf = f"scale='if(gt(iw,ih),-2,{size})':'if(gt(iw,ih),{size},-2)'"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vf", vf, "-c:v", "libx264", "-crf", "28",
+                        "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", str(out)], check=True)
+    return out
+
+
+def parse(text):
+    m = re.search(r"\{.*\}", text, re.S)
+    try:
+        return json.loads(m.group(0)) if m else None
+    except json.JSONDecodeError:
+        return None
+
+
 class SparkJudge:
     """Muse Spark on the Meta Model API. group() is the cheap call, pair() the full-fidelity one."""
 
@@ -100,13 +120,7 @@ class SparkJudge:
     def _upload(self, path, size):
         key = (path, size)
         if key not in self.ids:
-            out = self.workdir / f"{size}" / f"{sha(path)}.mp4"
-            if not out.exists():
-                out.parent.mkdir(parents=True, exist_ok=True)
-                vf = f"scale='if(gt(iw,ih),-2,{size})':'if(gt(iw,ih),{size},-2)'"
-                subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vf", vf, "-c:v", "libx264", "-crf", "28",
-                                "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", str(out)], check=True)
-            with open(out, "rb") as f:
+            with open(encode(path, size, self.workdir), "rb") as f:
                 self.ids[key] = self.cli.files.create(purpose="user_data", file=f,
                                                       expires_after={"anchor": "created_at", "seconds": 86400}).id
         return self.ids[key]
@@ -124,11 +138,7 @@ class SparkJudge:
             except RuntimeError:
                 if attempt == 2:
                     raise
-        m = re.search(r"\{.*\}", "".join(text), re.S)
-        try:
-            ans = json.loads(m.group(0)) if m else None
-        except json.JSONDecodeError:
-            ans = None
+        ans = parse("".join(text))
         cached = u.input_tokens_details.cached_tokens or 0
         cost = ((u.input_tokens - cached) * PRICE["input"] + cached * PRICE["cached"] + u.output_tokens * PRICE["output"]) / 1e6
         return ans, cost
@@ -147,6 +157,47 @@ class SparkJudge:
         content = [{"type": "input_text", "text": PAIR_PROMPT + "\nVideo A:"}, {"type": "input_file", "file_id": self._file(a, 360)},
                    {"type": "input_text", "text": "Video B:"}, {"type": "input_file", "file_id": self._file(b, 360)}]
         return self._ask(content, max_output_tokens=4000)
+
+
+class BasetenJudge:
+    """Muse Spark Open on Baseten's Model API (OpenAI chat completions). The API takes at most 2 videos per request and
+    ignores the audio track, so each candidate of a group goes in its own request, and the judge sees picture only.
+    Reasoning is always on; `low` is the lightest effort it accepts. Prices are the Meta API's."""
+    MODEL = "meta-models/muse-spark-open-1026"
+
+    def __init__(self, workdir):
+        from openai import OpenAI
+        key = os.environ.get("BASETEN_API_KEY") or os.environ["Baseten_API_KEY"]
+        self.cli = OpenAI(base_url="https://inference.baseten.co/v1", api_key=key, timeout=600)
+        self.workdir = Path(workdir)
+        self.lock = threading.Lock()  # one encode per clip and size, even with parallel requests
+
+    def _video(self, path, size):
+        with self.lock:
+            out = encode(path, size, self.workdir)
+        return {"type": "video_url", "video_url": {"url": "data:video/mp4;base64," + base64.b64encode(out.read_bytes()).decode()}}
+
+    def _ask(self, content):
+        r = self.cli.chat.completions.create(model=self.MODEL, messages=[{"role": "user", "content": content}],
+                                             max_tokens=8000, reasoning_effort="low")
+        u = r.usage
+        cached = (u.prompt_tokens_details.cached_tokens or 0) if u.prompt_tokens_details else 0
+        cost = ((u.prompt_tokens - cached) * PRICE["input"] + cached * PRICE["cached"] + u.completion_tokens * PRICE["output"]) / 1e6
+        return parse(r.choices[0].message.content or ""), cost
+
+    def group(self, anchor, candidates):
+        out, total = [], 0.0
+        for c in candidates:
+            ans, cost = self._ask([{"type": "text", "text": GROUP_PROMPT + "\nVideo A:"}, self._video(anchor, 180),
+                                   {"type": "text", "text": "Video B1:"}, self._video(c, 180)])
+            results = (ans or {}).get("results") or []
+            out.append(next((e for e in results if isinstance(e, dict) and str(e.get("candidate")) == "B1"), None))
+            total += cost
+        return out, total
+
+    def pair(self, a, b):
+        return self._ask([{"type": "text", "text": PAIR_PROMPT + "\nVideo A:"}, self._video(a, 360),
+                          {"type": "text", "text": "Video B:"}, self._video(b, 360)])
 
 
 def chunks(pairs):
@@ -266,8 +317,11 @@ def main(argv=None):
     ap.add_argument("run", type=Path, help="run directory written by `indexreel match`")
     ap.add_argument("--cache", type=Path, default=Path.home() / ".cache" / "indexreel" / "verify")
     ap.add_argument("--max-usd", type=float, default=5.0, help="stop making new calls once this much is spent")
+    ap.add_argument("--backend", choices=["meta", "baseten"], default="meta",
+                    help="meta: Muse Spark 1.3 on the Meta Model API; baseten: Muse Spark Open on Baseten (picture only)")
     a = ap.parse_args(argv)
-    spent, total = verify(a.run, SparkJudge(a.cache / "clips"), Cache(a.cache / "answers"), max_usd=a.max_usd)
+    judge, answers = (SparkJudge, "answers") if a.backend == "meta" else (BasetenJudge, "answers-baseten")
+    spent, total = verify(a.run, judge(a.cache / "clips"), Cache(a.cache / answers), max_usd=a.max_usd)
     print(f"verify: spent ${spent:.4f} now; answers in pairs.csv cost ${total:.4f} at list prices")
 
 

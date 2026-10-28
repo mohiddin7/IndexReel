@@ -162,3 +162,28 @@ def test_anchor_takes_at_most_four_candidates():
 def test_prompts_are_the_measured_ones():
     assert verify.GROUP_PROMPT in (ROOT / "scripts" / "spark_h12.py").read_text()
     assert verify.PAIR_PROMPT in (ROOT / "scripts" / "spark_pilot3.py").read_text()
+
+
+def test_baseten_judge_sends_one_two_video_request_per_candidate(tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+    sent = []
+
+    class Completions:
+        def create(self, model, messages, **kw):
+            videos = [p for p in messages[0]["content"] if p["type"] == "video_url"]
+            sent.append(len(videos))
+            usage = NS(prompt_tokens=1000, completion_tokens=100, prompt_tokens_details=NS(cached_tokens=0))
+            msg = NS(content='{"results": [{"candidate": "B1", "same_footage": "yes"}]}')
+            return NS(usage=usage, choices=[NS(message=msg)])
+
+    monkeypatch.setenv("BASETEN_API_KEY", "test")
+    monkeypatch.setattr(verify, "encode", lambda path, size, workdir: Path(path))
+    judge = verify.BasetenJudge(tmp_path)
+    judge.cli = NS(chat=NS(completions=Completions()))
+    clips = []
+    for n in ("a", "b", "c"):
+        (tmp_path / f"{n}.mp4").write_bytes(n.encode())
+        clips.append(str(tmp_path / f"{n}.mp4"))
+    answers, cost = judge.group(clips[0], clips[1:])
+    assert sent == [2, 2] and [a["same_footage"] for a in answers] == ["yes", "yes"]
+    assert cost == pytest.approx(2 * (1000 * 1.25 + 100 * 4.25) / 1e6)
