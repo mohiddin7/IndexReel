@@ -66,6 +66,7 @@ Columns, in this order:
 | `verify_confidence` | empty; a number in [0, 1] |
 | `verify_reason` | empty; one short sentence |
 | `verify_cost_usd` | empty; cost of the verifier call for this pair |
+| `verify_same_event` | added by the verifier after the other columns (readers that do not know it ignore it): the judge's `same_event` answer from the full-fidelity re-asks, `yes`, `no` or `unsure` (`unsure` when the two orders disagree); empty when the pair was only asked by the cheap prompt, which does not ask about the event. `same_event` yes with `verify_verdict` different reads as "same event, different footage" |
 | `core_a_start_s`, `core_a_end_s` | the longest run of consecutive sampled frames along the alignment whose cosine is at least 0.4: where the two clips really match, inside `a_start_s`..`a_end_s`. Empty when no frame reaches 0.4 |
 | `core_b_start_s`, `core_b_end_s` | the same run in `b` (its start is the start in `a` plus `offset_s`) |
 | `cover_a`, `cover_b` | the share of each clip's sampled seconds that the other clip matches (see Partial copies), from 0 to 1 |

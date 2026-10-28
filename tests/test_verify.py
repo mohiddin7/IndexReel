@@ -32,7 +32,7 @@ class FakeJudge:
         a, b = Path(a).stem, Path(b).stem
         self.calls.append(("pair", a, b))
         ans = self.full.get((a, b), self.full.get(cluster.pair_id(a, b), self.full_default))
-        return {"same_footage": ans, "unsure_because": "dark"}, 0.02
+        return {"same_footage": ans, "same_event": "yes", "unsure_because": "dark"}, 0.02
 
 
 class Refuse:
@@ -85,7 +85,8 @@ def test_merged_and_unresolved_pairs_get_a_verdict_apart_pairs_do_not(run, tmp_p
     assert [after[p]["verify_verdict"] for p in A_FAMILY] == ["same"] * 3
     assert after["b_cam1~b_cam2"]["verify_verdict"] == "different"
     assert not any(c[0] == "pair" for c in judge.calls)  # no conflict anywhere, so no full-fidelity call
-    assert list(next(csv.reader(open(run / "pairs.csv")))) == list(before["a_copy~a_refilm"])
+    assert list(next(csv.reader(open(run / "pairs.csv")))) == list(before["a_copy~a_refilm"]) + ["verify_same_event"]
+    assert all(r["verify_same_event"] == "" for r in after.values())  # the cheap prompt does not ask about the event
 
 
 def test_a_cheap_miss_inside_a_recording_is_re_asked_and_cleared(run, tmp_path):
@@ -98,6 +99,7 @@ def test_a_cheap_miss_inside_a_recording_is_re_asked_and_cleared(run, tmp_path):
     asked = {cluster.pair_id(a, b) for k, a, b in [c for c in judge.calls if c[0] == "pair"]}
     assert asked == set(A_FAMILY)  # the conflicting pair and both join edges of that recording, both orders each
     assert recordings(run)[0] == ["a_copy", "a_orig", "a_refilm"]
+    assert after["a_copy~a_refilm"]["verify_same_event"] == "yes"  # from the full-fidelity answers
     assert spent == pytest.approx(3 * 0.004 + 6 * 0.02)  # three group requests (b_cam1 and the a family), six full calls
     assert total == pytest.approx(sum(float(r["verify_cost_usd"] or 0) for r in after.values()))
 
@@ -187,3 +189,15 @@ def test_baseten_judge_sends_one_two_video_request_per_candidate(tmp_path, monke
     answers, cost = judge.group(clips[0], clips[1:])
     assert sent == [2, 2] and [a["same_footage"] for a in answers] == ["yes", "yes"]
     assert cost == pytest.approx(2 * (1000 * 1.25 + 100 * 4.25) / 1e6)
+
+
+def test_reasons_keep_whole_sentences():
+    long = "First sentence is here. " + "Second one runs on " * 12 + "and ends."
+    assert verify.sentences(long) == "First sentence is here."
+    assert verify.sentences("Short. Also short.") == "Short. Also short."
+    one = "One very long sentence " * 20
+    assert verify.sentences(one) == one.strip()  # never cut inside a sentence
+
+
+def test_same_event_across_orders():
+    assert [verify.same_event(x) for x in (["yes", "yes"], ["no", "yes"], ["no", None], [], [None])] == ["yes", "unsure", "no", "", ""]

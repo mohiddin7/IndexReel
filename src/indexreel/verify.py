@@ -95,6 +95,23 @@ def encode(path, size, workdir):
     return out
 
 
+def sentences(text, limit=200):
+    """Whole sentences up to about `limit` characters; the first sentence is kept whole however long it is."""
+    parts = re.split(r"(?<=[.!?])\s+", (text or "").strip())
+    out = parts[0]
+    for s in parts[1:]:
+        if len(out) + 1 + len(s) > limit:
+            break
+        out += " " + s
+    return out
+
+
+def same_event(answers):
+    """The judge's same_event over the full-fidelity answers: their common value, `unsure` if the orders disagree."""
+    vals = {a for a in answers if a in ("yes", "no", "unsure")}
+    return vals.pop() if len(vals) == 1 else "unsure" if vals else ""
+
+
 def parse(text):
     m = re.search(r"\{.*\}", text, re.S)
     try:
@@ -236,6 +253,7 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
     with open(run / "pairs.csv", newline="") as f:
         reader = csv.DictReader(f)
         columns, rows = reader.fieldnames, list(reader)
+    columns += [c for c in ("verify_same_event",) if c not in columns]  # additive column, see eval/run-format.md
     todo = [r["pair_id"] for r in rows if r["band"] != "apart"]
     sound = sound_scores(paths, todo) if sound is None else sound
     spent, budget_hit = 0.0, False
@@ -257,6 +275,7 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
         return hit
 
     answers, full, cost, detail = defaultdict(list), defaultdict(list), defaultdict(float), {}
+    events = defaultdict(list)  # same_event from full-fidelity answers; the cheap group prompt does not ask it
     with ThreadPoolExecutor(workers) as ex:
         work = chunks([tuple(p.split("~")) for p in todo])
         for (anchor, cands), hit in zip(work, ex.map(lambda w: call("group", [w[0], *w[1]], judge.group), work)):
@@ -283,6 +302,7 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
                     continue
                 ans = hit["answer"] or {}
                 full[p].append(ans.get("same_footage"))
+                events[p].append(ans.get("same_event"))
                 answers[p].append(ans.get("same_footage"))
                 cost[p] += hit["cost"]
                 detail[p] = ans.get("shared_detail") or ans.get("unsure_because") or detail.get(p)
@@ -299,7 +319,8 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
         agree = sum(VERDICT.get(a, "abstain") == v for a in answers[p]) / len(answers[p])
         note = "re-asked, " if full.get(p) else ""
         r.update(verify_verdict=v, verify_confidence=f"{agree:.2f}", verify_cost_usd=f"{cost[p]:.5f}",
-                 verify_reason=f"{note}{(detail.get(p) or 'no shared detail named')[:160]}; sound "
+                 verify_same_event=same_event(events.get(p, [])),
+                 verify_reason=f"{note}{sentences(detail.get(p) or 'no shared detail named')}; sound "
                                + ("not usable" if s is None else f"{'matches' if s >= AUDIO_MATCH else 'differs'} ({s:.3f})"))
     fd, tmp = tempfile.mkstemp(dir=run, suffix=".csv")
     with os.fdopen(fd, "w", newline="") as f:
