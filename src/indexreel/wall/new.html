@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IndexReel new run</title>
+<style>
+:root { --bg: #f6f6f3; --card: #ffffff; --ink: #1d1f23; --muted: #5a606b; --line: #d6d8dd; --ok: #1f6f43; --bad: #b3261e; --accent: #1b4fb8; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15171a; --card: #1e2125; --ink: #e8e9ec; --muted: #a2a8b3; --line: #343941; --ok: #5fcf94; --bad: #ff8a80; --accent: #7fa6ff; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; padding-bottom: 64px; }
+main { max-width: 760px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 0 0 8px; } h2 { font-size: 17px; margin: 28px 0 8px; }
+a { color: var(--accent); }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 0 0 12px; }
+label { display: block; margin: 10px 0 4px; font-weight: 600; }
+textarea, input[type=number] { font: inherit; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
+input[type=number] { width: 8em; }
+button { font: inherit; padding: 6px 16px; margin-top: 12px; border-radius: 6px; border: 1px solid var(--accent); background: var(--card); color: var(--ink); cursor: pointer; }
+button:disabled { opacity: .5; cursor: wait; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.badge { display: inline-block; border: 1px solid currentColor; border-radius: 4px; padding: 0 6px; font-size: 12px; font-weight: 600; }
+.ok { color: var(--ok); } .failed { color: var(--bad); } .partial, .running { color: var(--accent); } .pending, .skipped { color: var(--muted); }
+pre { margin: 6px 0 0; padding: 8px; max-height: 9em; overflow: auto; background: var(--bg); border-radius: 6px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.err { color: var(--bad); }
+#disclaimer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--ink); color: var(--bg); padding: 10px 16px; text-align: center; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>IndexReel: new run</h1>
+  <p class="muted">Paste links to public posts on x.com or twitter.com, one per line, or choose video files. The page fetches the videos, matches every pair of clips, asks Muse Spark about the pairs the matcher is unsure of, and opens the result. Everything runs on this machine.</p>
+  <form id="f" class="card">
+    <label for="urls">Post links</label>
+    <textarea id="urls" rows="5" placeholder="https://x.com/account/status/123…" spellcheck="false"></textarea>
+    <label for="files">Or video files</label>
+    <input type="file" id="files" multiple accept="video/*,.mkv">
+    <label for="cap">Verifier spend cap (US dollars)</label>
+    <input type="number" id="cap" value="1" min="0" max="10" step="0.5">
+    <p id="verify-note" class="small muted"></p>
+    <button id="go" type="submit">Run</button>
+    <p id="msg" class="err small" role="alert"></p>
+  </form>
+  <div id="progress" aria-live="polite"></div>
+  <h2>Earlier runs</h2>
+  <div id="runs" class="muted">None yet.</div>
+</main>
+<div id="disclaimer" role="note">This shows which clips come from the same recording. It does not say whether anything is true or false.</div>
+<script>
+const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const $ = (id) => document.getElementById(id);
+const post = async (url, body, headers) => {
+  const res = await fetch(url, {method: "POST", headers, body});
+  const out = await res.json();
+  if (!res.ok) throw new Error(out.error || res.statusText);
+  return out;
+};
+
+async function loadRuns() {
+  const out = await (await fetch("api/runs")).json();
+  $("verify-note").textContent = out.verify_available
+    ? "The verifier will run, up to the cap. The key is read from the environment of the process that started this page; this page never asks for it."
+    : "The verifier is off: MODEL_API_KEY is not set where this page was started. Pairs the matcher is unsure about will stay unresolved.";
+  if (out.runs.length) $("runs").innerHTML = out.runs.map((r) => `<div><a href="r/${esc(r.id)}/">${esc(r.id)}</a> <span class="small muted">${esc(r.n_clips)} clips</span></div>`).join("");
+}
+
+function show(job) {
+  $("progress").innerHTML = job.steps.map((s) => `<div class="card"><strong>${esc(s.name)}</strong> <span class="badge ${esc(s.status)}">${esc(s.status)}</span>${s.lines.length ? `<pre>${esc(s.lines.slice(-8).join("\n"))}</pre>` : ""}</div>`).join("") +
+    (job.state === "failed" ? `<p class="err" role="alert">Stopped: ${esc(job.error)}</p>` : "") +
+    (job.state === "done" ? `<p><a href="r/${esc(job.id)}/">Open the run</a></p>` : "");
+}
+
+async function poll(id) {
+  for (;;) {
+    const job = await (await fetch("api/runs/" + id)).json();
+    show(job);
+    if (job.state === "done") { location.href = "r/" + id + "/"; return; }
+    if (job.state === "failed") return;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("msg").textContent = "";
+  $("go").disabled = true;
+  try {
+    const urls = $("urls").value.split("\n").map((u) => u.trim()).filter((u) => u && !u.startsWith("#"));
+    const files = [...$("files").files];
+    if (urls.length + files.length < 2) throw new Error("Give at least two links or files.");
+    const {id} = await post("api/runs", "{}", {"Content-Type": "application/json"});
+    for (const f of files) {
+      $("progress").innerHTML = `<div class="card">Uploading ${esc(f.name)}…</div>`;
+      await post(`api/runs/${id}/files`, f, {"Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(f.name)});
+    }
+    await post(`api/runs/${id}/start`, JSON.stringify({urls, max_usd: Number($("cap").value)}), {"Content-Type": "application/json"});
+    await poll(id);
+  } catch (err) {
+    $("msg").textContent = err.message;
+  }
+  $("go").disabled = false;
+});
+
+loadRuns().catch((e) => { $("msg").textContent = "Could not load: " + e.message; });
+</script>
+</body>
+</html>

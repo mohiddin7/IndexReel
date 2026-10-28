@@ -77,7 +77,7 @@ table.res th { color: var(--muted); font-weight: 600; font-size: 13px; }
 <body>
 <div id="recorded" hidden>This is a recorded run. Decisions are shown, not editable, and nothing you click here is saved.</div>
 <header>
-  <h1>IndexReel clip wall</h1>
+  <h1>IndexReel clip wall <a id="newrun" class="small" href="../../" hidden>New run</a></h1>
   <div id="runinfo" class="muted small"></div>
   <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
 </header>
@@ -295,6 +295,7 @@ document.addEventListener("click", (e) => {
 
 const DATA = RECORDED ? JSON.parse(document.getElementById("recorded-data").textContent) : null;
 document.getElementById("recorded").hidden = !RECORDED;
+document.getElementById("newrun").hidden = RECORDED || !/^\/r\//.test(location.pathname);
 (RECORDED ? Promise.resolve(DATA.state) : fetch("api/state").then((r) => r.json())).then((s) => { S = s; render(); })
   .catch((e) => { document.getElementById("runinfo").textContent = `Could not load the run: ${e.message}`; });
 </script>

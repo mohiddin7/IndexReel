@@ -4,6 +4,7 @@ import csv
 import json
 import mimetypes
 import os
+import re
 import shutil
 import threading
 from datetime import datetime, timezone
@@ -12,10 +13,13 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from indexreel import cluster, withdraw
+from indexreel.wall.runs import Runs
 
 ACTIONS = {"approve_merge", "split", "reset"}
 PAGE = Path(__file__).with_name("index.html")
 RESULTS = Path(__file__).resolve().parents[3] / "eval" / "results.json"  # frozen bars and measurements, shown read-only
+RUN_PATH = re.compile(r"/r/([0-9a-f]{12})(/.*)?")
+NEW_PAGE = Path(__file__).with_name("new.html")
 _audit_lock = threading.Lock()
 
 
@@ -141,29 +145,55 @@ def state(run, claims=None, results=None):
 
 
 class Handler(BaseHTTPRequestHandler):
-    """Serves the page, the run state, the evidence frames and one POST that appends a decision. Local use only."""
+    """Serves the page, the run state, the evidence frames and the POSTs that append a decision. Local use only.
 
-    def reply(self, code, body, ctype="application/json"):
+    With a workdir (server.runs) it also serves a new-run page and every run under /r/<id>/."""
+
+    def reply(self, code, body, ctype="application/json", headers=()):
         if not isinstance(body, bytes):
             body = json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in headers:
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
     def host_ok(self):
-        # refuse other Host names (DNS rebinding): the page is for this machine only
-        if self.headers.get("Host", "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost"):
+        # refuse other Host names (DNS rebinding) and other origins: the page is for this machine only
+        local = ("127.0.0.1", "localhost")
+        origin = self.headers.get("Origin")
+        if self.headers.get("Host", "").rsplit(":", 1)[0] in local and (origin is None or urlsplit(origin).hostname in local):
             return True
         self.reply(403, {"error": "forbidden host"})
         return False
 
+    def route(self, path):
+        """(run dir, path inside it); run dir is None when the request is not for a run."""
+        if self.server.runs is None:
+            return self.server.run, path
+        m = RUN_PATH.fullmatch(path)
+        return (self.server.runs.run_dir(m.group(1)), m.group(2) or "/") if m else (None, path)
+
     def do_GET(self):
         if not self.host_ok():
             return
-        path, run = unquote(urlsplit(self.path).path), self.server.run
+        path, runs = unquote(urlsplit(self.path).path), self.server.runs
+        if runs is not None:
+            if path == "/":
+                return self.reply(200, NEW_PAGE.read_bytes(), "text/html; charset=utf-8")
+            if path == "/api/runs":
+                return self.reply(200, {"runs": runs.listing(), "verify_available": "MODEL_API_KEY" in os.environ})
+            if m := re.fullmatch(r"/api/runs/([0-9a-f]{12})", path):
+                job = runs.job(m.group(1))
+                return self.reply(200 if job else 404, job or {"error": "no such run"})
+            if m := re.fullmatch(r"/r/([0-9a-f]{12})", path):  # the page's links are relative, so it needs the trailing slash
+                return self.reply(301, b"", "text/plain", [("Location", path + "/")])
+        run, path = self.route(path)
+        if run is None:
+            return self.reply(404, {"error": "not found"})
         if path == "/":
             return self.reply(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         if path == "/api/state":
@@ -179,24 +209,50 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
         self.reply(404, {"error": "not found"})
 
+    def json_body(self):
+        if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+            raise TypeError("send application/json")  # a cross-site form cannot send this
+        length = int(self.headers.get("Content-Length", 0))
+        if length > 1 << 20:
+            raise ValueError("body too large")
+        return json.loads(self.rfile.read(length) or b"{}")
+
     def do_POST(self):
         if not self.host_ok():
             return
-        if urlsplit(self.path).path != "/api/decide":
-            return self.reply(404, {"error": "not found"})
-        if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
-            return self.reply(415, {"error": "send application/json"})  # a cross-site form cannot send this
+        path, runs = unquote(urlsplit(self.path).path), self.server.runs
         try:
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-            append_audit(self.server.run, body["pair"], body["action"], body.get("note", ""))
-        except (ValueError, KeyError, TypeError) as e:
+            if runs is not None and path == "/api/runs":
+                self.json_body()
+                return self.reply(200, {"id": runs.new()})
+            if runs is not None and (m := re.fullmatch(r"/api/runs/([0-9a-f]{12})/(files|start)", path)):
+                rid = m.group(1)
+                if m.group(2) == "files":
+                    if self.headers.get("Content-Type", "") != "application/octet-stream":
+                        raise TypeError("send application/octet-stream")
+                    name = runs.save(rid, unquote(self.headers.get("X-Filename", "")), self.rfile, int(self.headers.get("Content-Length", 0)))
+                    return self.reply(200, {"saved": name})
+                body = self.json_body()
+                runs.start(rid, body.get("urls", []), float(body.get("max_usd", 1.0)))
+                return self.reply(200, runs.job(rid))
+            run, path = self.route(path)
+            if run is None or path != "/api/decide":
+                return self.reply(404, {"error": "not found"})
+            body = self.json_body()
+            append_audit(run, body["pair"], body["action"], body.get("note", ""))
+        except TypeError as e:
+            return self.reply(415, {"error": str(e)})
+        except RuntimeError as e:
+            return self.reply(409, {"error": str(e)})
+        except (ValueError, KeyError, OSError, AttributeError) as e:
             return self.reply(400, {"error": str(e)})
-        self.reply(200, state(self.server.run, self.server.claims, self.server.results))
+        self.reply(200, state(run, self.server.claims, self.server.results))
 
 
-def make_server(run, port=0, claims=None, results=None):
+def make_server(run=None, port=0, claims=None, results=None, workdir=None, steps=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    server.run = Path(run).resolve()
+    server.run = Path(run).resolve() if run else None
+    server.runs = Runs(workdir, **({"steps": steps} if steps else {})) if workdir else None  # new-run mode: runs live under /r/<id>/
     server.results = Path(results).resolve() if results else None
     server.claims = Path(claims).resolve() if claims else None  # claims sheet for the withdraw panel, read on each request
     return server
@@ -204,13 +260,18 @@ def make_server(run, port=0, claims=None, results=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python -m indexreel.wall", description="Open a run directory in a local browser page.")
-    ap.add_argument("run", type=Path, help="run directory written by `indexreel match`")
+    ap.add_argument("run", type=Path, nargs="?", help="run directory written by `indexreel match`")
+    ap.add_argument("--workdir", type=Path, help="serve a new-run page and keep its runs in this folder, instead of opening one run")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--results", type=Path, default=RESULTS if RESULTS.is_file() else None, help="results JSON shown in the Results section (default: eval/results.json)")
     ap.add_argument("--export", type=Path, metavar="DIR", help="write a read-only static copy to DIR instead of serving")
     ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text) for the withdraw panel")
     args = ap.parse_args(argv)
-    for name in ("clips.json", "pairs.csv", "clusters.json", "run.json"):
+    if bool(args.run) == bool(args.workdir):
+        ap.error("give a run directory or --workdir, not both and not neither")
+    if args.export and not args.run:
+        ap.error("--export needs a run directory")
+    for name in ("clips.json", "pairs.csv", "clusters.json", "run.json") if args.run else ():
         if not (args.run / name).is_file():
             ap.error(f"{args.run} has no {name}")
     if args.results and not args.results.is_file():
@@ -223,7 +284,7 @@ def main(argv=None):
         except ValueError as e:
             ap.error(str(e))
         return
-    server = make_server(args.run, args.port, args.claims, args.results)
+    server = make_server(args.run, args.port, args.claims, args.results, args.workdir)
     print(f"http://127.0.0.1:{server.server_address[1]}/  (Ctrl-C to stop)")
     try:
         server.serve_forever()
