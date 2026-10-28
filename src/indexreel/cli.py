@@ -21,7 +21,7 @@ VIDEO = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
 MODEL = Path(__file__).resolve().parents[2] / "data" / "models" / "sscd_disc_mixup.torchscript.pt"
 PAIR_COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s", "a_start_s", "a_end_s", "b_start_s",
                 "b_end_s", "band", "evidence", "evidence_a_s", "verify_verdict", "verify_confidence", "verify_reason",
-                "verify_cost_usd"]
+                "verify_cost_usd", "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s"]
 THUMB = (320, 180)
 CACHE = Path.home() / ".cache" / "indexreel" / "match"
 STAGES = [("verify", "indexreel.verify", "judge the unresolved pairs of a run"),
@@ -127,6 +127,8 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
     for a, b in itertools.combinations(sorted(feats), 2):
         score = sscd.score(feats[a], feats[b])
         al, k, i0, i1, flipped = sscd.aligned_match(feats[a], feats[b])
+        core = sscd.core_span(feats[a], feats[b], k, i0, i1, flipped)
+        core = [""] * 4 if core is None else [core[0], min(core[1], dur[a]), core[0] + k, round(min(core[1] + k, dur[b]), 3)]
         pid = cluster.pair_id(a, b)
         bd = cluster.band(al, score, merge_at, floor)
         ev, evt = "", ""
@@ -137,7 +139,7 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
                      "mirrored": int(flipped), "offset_s": k, "a_start_s": i0, "a_end_s": min(i1, dur[a]),
                      "b_start_s": i0 + k, "b_end_s": round(min(i1 + k, dur[b]), 3), "band": bd, "evidence": ev,
                      "evidence_a_s": evt, "verify_verdict": "", "verify_confidence": "", "verify_reason": "",
-                     "verify_cost_usd": ""})
+                     "verify_cost_usd": "", **dict(zip(PAIR_COLUMNS[-4:], core))})
     with open(out / "pairs.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=PAIR_COLUMNS)
         w.writeheader()

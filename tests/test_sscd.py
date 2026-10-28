@@ -49,3 +49,26 @@ def test_aligned_score_needs_the_frames_in_the_same_order():
     assert sscd.aligned_score(original, trimmed) > 0.99
     assert sscd.score(original, shuffled) > 0.99  # best-match score cannot tell the order is gone
     assert sscd.aligned_score(original, shuffled) < 0.5
+
+
+def test_mirror_flag_needs_a_margin():
+    rng = np.random.default_rng(1)
+    frames = unit(rng.normal(size=(8, 32)))
+    other = unit(rng.normal(size=(8, 32)))
+    nearly = unit(frames + 0.02 * rng.normal(size=frames.shape))  # a slightly worse plain match than the mirrored one
+    assert sscd.aligned_match((frames, other), (frames, other))[4] is False
+    assert sscd.aligned_match((frames, other), (other, frames))[4] is True  # b is a's mirror image
+    score, _, _, _, flipped = sscd.aligned_match((nearly, frames), (frames, other))
+    assert flipped is False and 0.97 < score < 1  # mirrored wins by about 0.004: noise, so the plain alignment is kept
+
+
+def test_core_span_is_where_the_frames_match():
+    rng = np.random.default_rng(2)
+    b = unit(rng.normal(size=(10, 64)))
+    a = unit(rng.normal(size=(12, 64)))
+    a[3:7] = b[5:9]  # a's seconds 3 to 6 are b's seconds 5 to 8
+    clip_a, clip_b = (a, a), (b, b)
+    score, offset, start, end, flipped = sscd.aligned_match(clip_a, clip_b)
+    assert offset == 2
+    assert sscd.core_span(clip_a, clip_b, offset, start, end, flipped) == (3, 7)
+    assert sscd.core_span((a, a), (unit(rng.normal(size=(10, 64))),) * 2, 0, 0, 10, False) is None

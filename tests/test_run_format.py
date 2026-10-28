@@ -10,7 +10,7 @@ from indexreel import cluster
 RUN = Path(__file__).parent / "fixtures" / "run_fake"
 COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s", "a_start_s", "a_end_s", "b_start_s",
            "b_end_s", "band", "evidence", "evidence_a_s", "verify_verdict", "verify_confidence", "verify_reason",
-           "verify_cost_usd"]
+           "verify_cost_usd", "core_a_start_s", "core_a_end_s", "core_b_start_s", "core_b_end_s"]
 
 
 @pytest.fixture(scope="module")

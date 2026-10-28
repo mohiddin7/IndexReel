@@ -35,7 +35,7 @@ Columns, in this order:
 | `a`, `b` | clip ids, `a < b` |
 | `score` | SSCD best-match score (each sampled frame against its best frame in the other clip, averaged; both directions, one clip mirrored; the highest) |
 | `aligned` | SSCD aligned score: the highest mean cosine along one constant time offset (see `eval/sscd-exploratory.md`, Addendum A) |
-| `mirrored` | 1 if the best alignment needs one clip mirrored, else 0 |
+| `mirrored` | 1 if the best alignment needs one clip mirrored, else 0; the mirrored alignment must beat the plain one by 0.02, because SSCD scores differ by less than that when nothing is mirrored |
 | `offset_s` | the offset of the best alignment: time in `b` minus time in `a` |
 | `a_start_s`, `a_end_s` | the part of `a` the aligned frames cover |
 | `b_start_s`, `b_end_s` | the same in `b` (`b_start_s = a_start_s + offset_s`) |
@@ -46,8 +46,12 @@ Columns, in this order:
 | `verify_confidence` | empty; a number in [0, 1] |
 | `verify_reason` | empty; one short sentence |
 | `verify_cost_usd` | empty; cost of the verifier call for this pair |
+| `core_a_start_s`, `core_a_end_s` | the longest run of consecutive sampled frames along the alignment whose cosine is at least 0.4: where the two clips really match, inside `a_start_s`..`a_end_s`. Empty when no frame reaches 0.4 |
+| `core_b_start_s`, `core_b_end_s` | the same run in `b` (its start is the start in `a` plus `offset_s`) |
 
 Every unordered pair appears once. The sampled frame is the middle of each second, so frame `i` covers `[i, i+1)` seconds.
+
+The aligned overlap (`a_start_s` to `b_end_s`) is at least half of the shorter clip, so for a short segment inside a longer clip it is wider than the segment. The core columns are the tight span; the compilation rule reads them.
 
 ## Evidence images
 

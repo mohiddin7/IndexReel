@@ -55,3 +55,13 @@ Same dev clips, same scores (cached), new bands:
 Eight more pairs reach the verifier: the two positives above and six negatives, all involving the dark night-city family or a simulated re-film of a different family (aligned 0.21 to 0.26). That is 4% of the pairs instead of 1%. Cost per pair is in the verifier's own log.
 
 Measured while building the cache: it takes about 0.2 MB of disk per second of video (50 MB for the 240 s of dev clips), and a second run over the same clips took 2.7 s instead of 76.7 s with identical pairs. The message of the commit that added the cache says 2 MB per second; that figure is wrong.
+
+## Amendment 2 (Oct 28): mirror margin and core span, bands unchanged
+
+Two changes to what the matcher writes, made after the held-out run reported on 8410505 and before the next held-out set is touched. Neither moves a band.
+
+**Mirror margin.** The aligned score was computed for the plain pair and for the pair with one clip flipped, and the flipped alignment was taken whenever its score was higher. SSCD is nearly flip-invariant, so with nothing mirrored the two differ by hundredths and the flag was set at random: flipped minus plain, on 252 unrelated dev pairs, ranged from -0.016 to +0.015 and was positive on 47% of them; on 41 true unmirrored pairs (24 dev fixtures, 17 phone-forwarded copies) from -0.047 to +0.011. Eight true mirror images (ffmpeg flips of dev clips) gave +0.030 to +0.059. The flipped alignment now has to beat the plain one by 0.02, which sits between the two groups. The calibration is thin: eight synthetic flips, all from one set of clips, so 0.02 is provisional. Effect on the 276 dev pairs: no band changes; `mirrored` was 1 on 124 pairs and is 0 on all; `aligned` fell on 123 pairs by at most 0.015 and rose on none; offset or span moved on 39 pairs (the tied ones).
+
+**Core span.** Four columns at the end of `pairs.csv`: the longest run of consecutive sampled frames along the alignment whose cosine is at least 0.4 (`eval/run-format.md`). The cut-off was chosen on the build split of `eval/compilation.md` only: at 0.4, 29 of 30 true segments get a run and none of 198 wrong-family pairs gives one of two or more frames (0.5: 24 of 30; 0.6: 17 of 30). On the 24 dev clips, 22 of 24 true pairs have a core span and 4 of 252 unrelated pairs do (1 of 2 s or more). The columns are not used for bands.
+
+Merge threshold 0.55 and floor 0.20 are unchanged.
