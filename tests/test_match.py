@@ -59,3 +59,23 @@ def test_match_writes_a_run_that_follows_the_format(tmp_path):
         assert bool(r["evidence"]) == (r["band"] != "apart") and (not r["evidence"] or (tmp_path / "run" / r["evidence"]).exists())
     assert rec == cluster.recordings(["a", "a_copy", "b"], [(r["pair_id"], r["a"], r["b"], r["band"]) for r in rows])
     assert (tmp_path / "run" / "audit.jsonl").read_text() == ""
+
+
+@pytest.mark.skipif(not Path(MODEL).exists(), reason="SSCD model not in data/models")
+def test_second_run_reads_the_cache(tmp_path, monkeypatch):
+    clips = tmp_path / "clips"
+    clips.mkdir()
+    write_clip(clips / "a.mp4", 5)
+    write_clip(clips / "b.mp4", 6)
+    first, _ = cli.match(clips, tmp_path / "run1", MODEL, cache=tmp_path / "cache")
+    monkeypatch.setattr(localise, "sample", lambda *a, **k: pytest.fail("decoded again"))
+    second, _ = cli.match(clips, tmp_path / "run2", MODEL, cache=tmp_path / "cache")
+    assert first == second
+    assert (tmp_path / "run1" / "frames").exists() and len(list((tmp_path / "cache").glob("*.npz"))) == 2
+
+
+@pytest.mark.parametrize("stage", ["verify", "withdraw", "wall"])
+def test_stages_are_reachable_from_the_entry_point(stage, capsys):
+    with pytest.raises(SystemExit) as e:
+        cli.main([stage, "--help"])
+    assert e.value.code == 0 and "run" in capsys.readouterr().out

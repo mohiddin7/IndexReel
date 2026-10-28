@@ -3,9 +3,11 @@ import argparse
 import csv
 import datetime
 import hashlib
+import importlib
 import itertools
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import cv2
@@ -21,6 +23,10 @@ PAIR_COLUMNS = ["pair_id", "a", "b", "score", "aligned", "mirrored", "offset_s",
                 "b_end_s", "band", "evidence", "evidence_a_s", "verify_verdict", "verify_confidence", "verify_reason",
                 "verify_cost_usd"]
 THUMB = (320, 180)
+CACHE = Path.home() / ".cache" / "indexreel" / "match"
+STAGES = [("verify", "indexreel.verify", "judge the unresolved pairs of a run"),
+          ("withdraw", "indexreel.withdraw", "list the claims that lose video support when a recording is withdrawn"),
+          ("wall", "indexreel.wall", "open a run in a local browser page")]
 
 
 def thumb(frame):
@@ -71,22 +77,50 @@ def git_commit():
         return "unknown"
 
 
-def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THETA, argv=""):
+def analyse(path, net, theta, model_sha, cache):
+    """Embeddings, evidence thumbnails and quads of one clip; read from the cache when this exact file was seen.
+
+    The cache key holds the file's path, size and modification time, the localiser settings and the model hash,
+    so changing any of them recomputes.
+    """
+    f = None
+    if cache:
+        st = path.stat()
+        key = f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{theta}|{localise.LONG_SIDE}|{localise.RATE}|{model_sha}"
+        f = Path(cache) / f"{hashlib.sha1(key.encode()).hexdigest()}.npz"
+        if f.exists():
+            z = np.load(f)
+            return (json.loads(str(z["meta"])), z["plain"], z["mirror"], z["thumbs"],
+                    [None if np.isnan(q).any() else q for q in z["quads"]])
+    s = localise.sample(path, theta)
+    plain = sscd.embed(net, s["frames"])
+    mirror = sscd.embed(net, [np.ascontiguousarray(fr[:, ::-1]) for fr in s["frames"]])
+    thumbs = np.stack([thumb(fr) for fr in s["frames"]])
+    meta = {k: s[k] for k in ("fps", "duration_s", "width", "height")}
+    if f:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f.stem + ".tmp.npz")
+        np.savez(tmp, plain=plain, mirror=mirror, thumbs=thumbs, meta=json.dumps(meta),
+                 quads=np.stack([np.full((4, 2), np.nan) if q is None else q for q in s["quads"]]))
+        tmp.replace(f)
+    return meta, plain, mirror, thumbs, s["quads"]
+
+
+def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THETA, argv="", cache=CACHE):
     out = Path(out)
     (out / "frames").mkdir(parents=True, exist_ok=True)
-    net = sscd.load(model)
+    net, model_sha = sscd.load(model), hashlib.sha256(Path(model).read_bytes()).hexdigest()
     clips, feats, thumbs, info = find_clips(folder), {}, {}, []
     for p in clips:
-        s = localise.sample(p, theta)
-        feats[p.stem] = (sscd.embed(net, s["frames"]), sscd.embed(net, [np.ascontiguousarray(f[:, ::-1]) for f in s["frames"]]))
-        thumbs[p.stem] = [thumb(f) for f in s["frames"]]
-        fallback = sum(q is None for q in s["quads"]) / len(s["quads"])
-        q = localise.median_quad(s["quads"])
-        info.append({"id": p.stem, "path": str(p.resolve()), "duration_s": round(s["duration_s"], 3),
-                     "fps": round(s["fps"], 3), "width": s["width"], "height": s["height"],
-                     "frames_sampled": len(s["frames"]),
+        meta, plain, mirror, thumbs[p.stem], quads = analyse(p, net, theta, model_sha, cache)
+        feats[p.stem] = (plain, mirror)
+        fallback = sum(q is None for q in quads) / len(quads)
+        q = localise.median_quad(quads)
+        info.append({"id": p.stem, "path": str(p.resolve()), "duration_s": round(meta["duration_s"], 3),
+                     "fps": round(meta["fps"], 3), "width": meta["width"], "height": meta["height"],
+                     "frames_sampled": len(quads),
                      "crop": {"method": "opencv" if q else "none", "quad": q, "fallback_share": round(fallback, 3)}})
-        print(f"{p.stem}: {len(s['frames'])} frames, localiser fallback {fallback:.0%}", flush=True)
+        print(f"{p.stem}: {len(quads)} frames, localiser fallback {fallback:.0%}", flush=True)
     dur = {c["id"]: c["duration_s"] for c in info}
 
     rows = []
@@ -119,7 +153,7 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         "version": 1, "command": argv, "created_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_commit": git_commit(), "n_clips": len(info), "sample": "1 frame per second", "thresholds": th,
         "localiser": {"method": "opencv", "theta": theta},
-        "sscd_model_sha256": hashlib.sha256(Path(model).read_bytes()).hexdigest()}, indent=1))
+        "sscd_model_sha256": model_sha}, indent=1))
     return rows, rec
 
 
@@ -144,8 +178,17 @@ def main(argv=None):
     m.add_argument("--merge-at", type=float, default=MERGE_AT)
     m.add_argument("--floor", type=float, default=FLOOR)
     m.add_argument("--theta", type=float, default=localise.THETA, help="localiser edge-support cut-off")
+    m.add_argument("--cache", default=str(CACHE), help="where per-clip embeddings are kept between runs")
+    m.add_argument("--no-cache", action="store_true")
+    for name, _, text in STAGES:  # listed for --help only; each stage parses its own arguments
+        sub.add_parser(name, add_help=False, help=text)
+    argv = sys.argv[1:] if argv is None else list(argv)
+    for name, module, _ in STAGES:
+        if argv[:1] == [name]:
+            return importlib.import_module(module).main(argv[1:])
     a = ap.parse_args(argv)
-    rows, rec = match(a.clips, a.out, a.sscd_model, a.merge_at, a.floor, a.theta, argv=" ".join(argv or []) or "indexreel match")
+    rows, rec = match(a.clips, a.out, a.sscd_model, a.merge_at, a.floor, a.theta, argv="indexreel " + " ".join(argv),
+                      cache=None if a.no_cache else a.cache)
     show(rows, rec)
 
 
