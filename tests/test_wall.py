@@ -534,3 +534,9 @@ def test_the_page_has_the_wording_for_shared_footage_and_exports_it(tmp_path):
     wall.export(run, tmp_path / "exp")
     data = json.loads((tmp_path / "exp" / "index.html").read_text().split('id="recorded-data">')[1].split("</script>")[0])
     assert data["state"]["pairs"][1]["shared"] and "path" not in data["state"]["clips"][0]
+
+
+def test_the_page_words_a_partial_pair_inside_one_recording_as_the_same_recording():
+    page = wall.PAGE.read_text()
+    assert "shares only part of its footage with" in page and "same recording, joined through other links" in page
+    assert "g.recording === recOf(g.clip)" in page and "g.recording === r.id" in page
