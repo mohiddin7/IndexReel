@@ -59,7 +59,8 @@ select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-
 .lost-h { color: var(--lost); }
 nav { margin: 6px 0 0; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
 .history { margin-top: 6px; }
-.post { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 320px; flex: 1 1 240px; font-size: 13px; }
+.post { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 320px; flex: 1 1 240px; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.post-line { margin: 2px 0 2px 12px; }
 .post q { display: block; margin: 4px 0; quotes: none; overflow-wrap: anywhere; }
 table.res { border-collapse: collapse; width: 100%; min-width: 640px; table-layout: fixed; font-size: 14px; }
 table.res th:nth-child(1) { width: 36%; } table.res th:nth-child(2) { width: 22%; } table.res th:nth-child(3) { width: 16%; }
@@ -106,31 +107,44 @@ function meter(p) {
     <div class="small muted">aligned <strong>${num(p.aligned)}</strong> · merge at ${num(th.merge_at)} · floor ${num(th.floor)} · best-match ${num(p.score)}</div>`;
 }
 
+// a clip's display name: "post N" (its place in the run) when the run knows the post, else its id
+const nm = (id) => { const i = S.clips.findIndex((c) => c.id === id); return i >= 0 && S.clips[i].source ? `post ${i + 1}` : esc(id); };
+
 function evidence(p) {
   if (!p.evidence) return `<div class="noimg muted small">no evidence image for this pair</div>`;
   const src = p.evidence.split("/").map(encodeURIComponent).join("/");
   const rows = p.evidence_times.map(([ta, tb]) => `<tr><td>${esc(ta)} s</td><td>${esc(tb)} s</td></tr>`).join("");
-  return `<img src="${src}" alt="aligned frames of ${esc(p.a)} and ${esc(p.b)}">
-    <table class="times"><tr><th>${esc(p.a)}</th><th>${esc(p.b)}</th></tr>${rows}</table>`;
+  return `<img src="${src}" alt="aligned frames of ${nm(p.a)} and ${nm(p.b)}">
+    <table class="times"><tr><th>${nm(p.a)}</th><th>${nm(p.b)}</th></tr>${rows}</table>`;
 }
 
 function sharedNote(p) {
   if (!p.shared || !p.shared.length) return "";
-  const cover = p.cover ? ` (${esc(p.a)}: ${num(p.cover[0] * 100, 0)}% of the clip, ${esc(p.b)}: ${num(p.cover[1] * 100, 0)}%)` : "";
+  const cover = p.cover ? ` (${nm(p.a)}: ${num(p.cover[0] * 100, 0)}% of the clip, ${nm(p.b)}: ${num(p.cover[1] * 100, 0)}%)` : "";
   const recOf = (clip) => (S.recordings.find((r) => r.members.includes(clip)) || {}).id;
   return p.shared.map((g) => {
     const span = `${num(g.start_s, 1)}–${num(g.end_s, 1)} s`;
     if (g.recording === recOf(g.clip))  // both clips are already one recording through other links
-      return `<div class="warn small">${esc(g.clip)} shares only part of its footage with ${esc(g.clip === p.a ? p.b : p.a)} over ${span} (same recording, joined through other links). Only part of this clip matches here.${cover}</div>`;
-    return `<div class="warn small">${esc(g.clip)} shares footage with ${esc(g.recording)} over ${span}. Only part of this clip matches; not counted as a copy (experimental rule).${cover}</div>`;
+      return `<div class="warn small">${nm(g.clip)} shares only part of its footage with ${nm(g.clip === p.a ? p.b : p.a)} over ${span} (same recording, joined through other links). Only part of this clip matches here.${cover}</div>`;
+    return `<div class="warn small">${nm(g.clip)} shares footage with ${esc(g.recording)} over ${span}. Only part of this clip matches; not counted as a copy (experimental rule).${cover}</div>`;
   }).join("");
 }
 
+const VERDICT_WORDS = {same: "same recording", different: "different footage", abstain: "unsure"};
+
 function history(p) {
-  const v = p.verify, parts = [`Matcher: ${p.matcher} (aligned ${num(p.aligned)}, best-match ${num(p.score)})`];
-  if (v.verdict) parts.push(`Verifier: ${v.verdict}${v.confidence ? ` (confidence ${v.confidence})` : ""}${v.reason ? `: ${v.reason}` : ""}`);
-  if (p.decision) parts.push(`Person: ${p.decision.action === "approve_merge" ? "approved the merge" : "split the pair"}`);
-  return `<div class="small history"><strong>History</strong> ${parts.map(esc).join(" → ")}</div>`;
+  const v = p.verify, chain = [`Matcher: ${p.matcher} (aligned ${num(p.aligned)}, best-match ${num(p.score)})`];
+  if (v.verdict) chain.push(`Verifier: ${VERDICT_WORDS[v.verdict] || v.verdict}`);
+  if (p.decision) chain.push(`Person: ${p.decision.action === "approve_merge" ? "approved the merge" : "split the pair"}`);
+  let verdict = "";
+  if (v.verdict) {
+    const reason = String(v.reason || "").replace(/^re-asked,\s*/i, "");
+    // a 'different' verdict whose reason starts with 'same ...' names a shared event detail: same event, different footage
+    const event = v.verdict === "different" && /^same\b/i.test(reason);
+    verdict = `<div class="small"><strong>Verifier says: ${esc(VERDICT_WORDS[v.verdict] || v.verdict)}${event ? " (same event, different footage)" : ""}</strong>${v.confidence ? ` <span class="muted">confidence ${esc(v.confidence)}</span>` : ""}</div>` +
+      (reason ? `<div class="small muted">${event ? "It names what the two clips share, not what makes them one recording: " : "Reason given: "}${esc(reason)}</div>` : "");
+  }
+  return `<div class="small history">${verdict}<div><strong>History</strong> ${chain.map(esc).join(" → ")}</div></div>`;
 }
 
 function pairCard(p) {
@@ -140,10 +154,10 @@ function pairCard(p) {
   const mirrored = p.mirrored ? " · one clip mirrored" : "";
   const off = (p.offset_s >= 0 ? "+" : "") + num(p.offset_s, 1);
   const span = p.core
-    ? `matching core: ${esc(p.a)} ${num(p.core[0][0], 1)}–${num(p.core[0][1], 1)} s · ${esc(p.b)} ${num(p.core[1][0], 1)}–${num(p.core[1][1], 1)} s`
-    : `${esc(p.a)} ${num(p.a_span[0], 1)}–${num(p.a_span[1], 1)} s · ${esc(p.b)} ${num(p.b_span[0], 1)}–${num(p.b_span[1], 1)} s`;
+    ? `matching core: ${nm(p.a)} ${num(p.core[0][0], 1)}–${num(p.core[0][1], 1)} s · ${nm(p.b)} ${num(p.core[1][0], 1)}–${num(p.core[1][1], 1)} s`
+    : `${nm(p.a)} ${num(p.a_span[0], 1)}–${num(p.a_span[1], 1)} s · ${nm(p.b)} ${num(p.b_span[0], 1)}–${num(p.b_span[1], 1)} s`;
   return `<article class="card" id="pair-${esc(p.id)}" data-pair="${esc(p.id)}">
-    <div><strong>${esc(p.a)}</strong> ↔ <strong>${esc(p.b)}</strong> <span class="badge ${esc(p.band)}">${esc(p.band)}</span> ${hand}</div>
+    <div><strong>${nm(p.a)}</strong> ↔ <strong>${nm(p.b)}</strong> <span class="badge ${esc(p.band)}">${esc(p.band)}</span> ${hand}</div>
     <div class="pair">
       <div>${evidence(p)}</div>
       <div>${meter(p)}
@@ -167,8 +181,30 @@ function postCard(src, detail) {
   const meta = [src.platform, src.posted_at].filter(Boolean).map(esc).join(" · ");
   const caption = src.caption ? `<q>${esc(String(src.caption).slice(0, 240))}</q>` : "";
   const url = safeUrl(src.url), link = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : "";
-  return `<div class="post">${who} <span class="muted">${meta}</span>${caption}<div class="small">${link}</div><div class="small muted">${detail}</div></div>`;
+  return `<div class="post">${detail ? `<div class="small muted">${detail}</div>` : ""}${who} <span class="muted">${meta}</span>${caption}<div class="small">${link}</div></div>`;
 }
+
+// a clip as its post (account, time, caption) when the run knows it, else its id
+function clipLabel(id) {
+  const c = S.clips.find((x) => x.id === id), src = c && c.source;
+  if (!src) return `<strong>${esc(id)}</strong>`;
+  const who = src.account ? ` @${esc(String(src.account).replace(/^@/, ""))}` : "";
+  const cap = src.caption ? String(src.caption).slice(sharedPrefix()).replace(/^[\s.,;:–-]+/, "") : "";
+  const caption = cap ? ` <q>${esc(cap.slice(0, 90))}${cap.length > 90 ? "…" : ""}</q>` : "";
+  return `<strong>${nm(id)}</strong>${who} <span class="muted">${esc(src.posted_at || "")}</span>${caption}`;
+}
+
+// length of the start that every caption of the run has in common (cut back to a word boundary), so cards show what differs
+function sharedPrefix() {
+  const caps = S.clips.map((c) => c.source && c.source.caption).filter(Boolean).map(String);
+  if (caps.length < 2) return 0;
+  let n = 0;
+  while (caps.every((t) => t[n] !== undefined && t[n] === caps[0][n])) n++;
+  while (n > 0 && /\w/.test(caps[0][n] || "") && !/\s/.test(caps[0][n - 1])) n--;  // never cut a word in half
+  return n;
+}
+
+const stretchOf = (g, links) => `<li><div>${num(g.start_s, 1)} to ${num(g.end_s, 1)} s comes from: ${g.clips.map((c) => `<div class="post-line">${clipLabel(c)}</div>`).join("")}</div><div class="small muted">from ${links}</div></li>`;
 
 const fmtSpan = (g) => `${num(g.start_s, 1)} to ${num(g.end_s, 1)} s`;
 const clipActions = (clip, buttons) => RECORDED ? "" : `<div class="actions" data-clip="${esc(clip)}">
@@ -176,7 +212,7 @@ const clipActions = (clip, buttons) => RECORDED ? "" : `<div class="actions" dat
 
 function compCard(sg) {
   const P = pairById(), c = S.clips.find((x) => x.id === sg.clip);
-  const segs = sg.segments.map((g) => `<li>${g.clips.map(esc).join(", ")} (${esc(g.recording)}) over ${fmtSpan(g)}, from ${g.links.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}</li>`).join("");
+  const segs = sg.segments.map((g) => stretchOf(g, g.links.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", "))).join("");
   const linked = [...new Set(sg.segments.flatMap((g) => g.links))];
   return `<article class="card" id="clip-${esc(sg.clip)}"><div><strong>${esc(sg.clip)}</strong> <span class="badge unresolved">possible compilation</span></div>
     ${c && c.source ? postCard(c.source, "") : ""}
@@ -184,6 +220,13 @@ function compCard(sg) {
     <p class="small muted">Confirm: those sources stay separate recordings and this clip becomes a recording of its own; its links turn partial. Dismiss: the clip stays joined as it is.</p>
     ${clipActions(sg.clip, `<button class="yes" data-action="confirm_compilation">Confirm compilation</button><button class="no" data-action="dismiss_compilation">Dismiss</button>`)}
     <details><summary>Evidence: ${linked.length} pair${linked.length === 1 ? "" : "s"}</summary>${linked.map((id) => pairCard(P[id])).join("")}</details></article>`;
+}
+
+function confirmedCard(clip, d) {
+  return `<article class="card"><div>${clipLabel(clip)} <span class="badge hand">compilation confirmed by hand</span></div>
+    <div class="small muted">Its stretches stay separate recordings; the clip is a recording of its own and its links are partial.</div>
+    ${d.note ? `<div class="small muted">Your note: ${esc(d.note)}</div>` : ""}
+    ${clipActions(clip, `<button data-action="dismiss_compilation">Dismiss compilation</button>`)}</article>`;
 }
 
 function dismissedCard(clip, d) {
@@ -196,7 +239,7 @@ function recCard(r) {
   const byId = Object.fromEntries(S.clips.map((c) => [c.id, c]));
   const chips = r.members.map((m) => {
     const c = byId[m], crop = c.crop && c.crop.method !== "none" ? ` · cropped (${esc(c.crop.method)})` : "";
-    const detail = `${esc(m)} · ${num(c.duration_s, 1)} s${crop}`;
+    const detail = `${nm(m)} · ${num(c.duration_s, 1)} s${crop}`;
     return c.source ? postCard(c.source, detail) : `<span class="chip">${detail}</span>`;
   }).join("");
   const P = pairById();
@@ -204,7 +247,7 @@ function recCard(r) {
   const conflicts = r.conflicts.length
     ? `<div class="warn">Contradiction: ${r.conflicts.map(esc).join(", ")} ${r.conflicts.length > 1 ? "are" : "is"} apart although both clips are in this recording. Merging is not transitive; decide which pair is wrong.</div>` : "";
   const waiting = open ? `<div class="small muted">Waiting on: ${open}</div>` : "";
-  const segs = (r.segments || []).map((g) => `<li>${esc(g.recording)} (${g.links.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}) over ${num(g.start_s, 1)} to ${num(g.end_s, 1)} s</li>`).join("");
+  const segs = (r.segments || []).map((g) => stretchOf(g, g.links.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", "))).join("");
   const comp = segs ? `<div class="small">Compilation (confirmed by a person; experimental: the rule that finds these failed 2 of its 4 frozen test bars): this clip contains footage of other recordings, each over its own stretch.<ul class="claims">${segs}</ul>${clipActions(r.members[0], `<button data-action="dismiss_compilation">Dismiss compilation</button>`)}</div>` : "";
   const sharedSegs = Object.entries(r.partial || {}).flatMap(([clip, gs]) => gs.map((g) => `<li>${esc(clip)} ${g.recording === r.id ? `shares only part of its footage with ${g.clips.map(esc).join(", ")} (same recording)` : `shares footage with ${esc(g.recording)} (${g.clips.map(esc).join(", ")})`} over ${fmtSpan(g)}, from ${g.links.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}</li>`)).join("");
   const sharedBox = sharedSegs ? `<div class="small">Partly shared footage (only part of the clip matches; nothing is joined by these pairs). Experimental rule: on its frozen test it flagged 11 of 16 partial copies, so misses stay joined as before; it demoted no full copy and made no wrong statement:<ul class="claims">${sharedSegs}</ul></div>` : "";
@@ -224,7 +267,7 @@ function withdrawBox() {
   }
   const keep = S.recordings.find((r) => r.members.includes(wClip)) || S.recordings[0];
   wClip = keep.members[0];
-  const opts = S.recordings.map((r) => `<option value="${esc(r.members[0])}" ${r === keep ? "selected" : ""}>${esc(r.id)} (${esc(r.status)}): ${r.members.map(esc).join(", ")}</option>`).join("");
+  const opts = S.recordings.map((r) => `<option value="${esc(r.members[0])}" ${r === keep ? "selected" : ""}>${esc(r.id)} (${esc(r.status)}): ${r.members.map(nm).join(", ")}</option>`).join("");
   box.innerHTML = `<div class="card"><label>Withdraw recording <select id="wsel">${opts}</select></label><div id="wbody" aria-live="polite"></div></div>`;
   document.getElementById("wsel").addEventListener("change", (e) => { wClip = e.target.value; loadWithdraw(keepId(e.target.value)); });
   loadWithdraw(keep.id);
@@ -253,19 +296,20 @@ async function loadWithdraw(id) {
 function withdrawLists(out) {
   const w = out.withdrawn, text = (id) => (out.text[id] ? ` ${esc(out.text[id])}` : "");
   const item = (e) => {
-    const left = e.remaining.length ? ` → still cited in ${e.remaining.map(esc).join(", ")}` : "";
+    const named = (id) => { const r = S.recordings.find((x) => x.id === id); return `${esc(id)}${r ? ` (${r.members.map(nm).join(", ")})` : ""}`; };
+    const left = e.remaining.length ? ` → still cited in ${e.remaining.map(named).join(", ")}` : "";
     const tied = e.tied_by.length ? `; open pairs ${e.tied_by.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}` : "";
     const sp = (l) => `${num(l.start_s, 1)} to ${num(l.end_s, 1)} s`;
     const note = (l) => (l.confirmed === false ? ", compilation not yet confirmed" : "");
-    const lostSpans = e.lost_spans.map((l) => `<div class="small">${esc(l.clip)} contains footage of ${esc(w.id)} over ${sp(l)}${note(l)}</div>`).join("");
-    const partial = e.partial.map((l) => `<div class="small muted">${esc(l.clip)} still supports it over ${sp(l)} (${esc(l.recording)})</div>`).join("");
-    const possible = (e.possible || []).map((l) => `<div class="small muted">possible: ${esc(l.clip)} over ${sp(l)} (${esc(l.recording)})${note(l)}</div>`).join("");
-    const unconfirmed = (e.unconfirmed || []).map((c) => `<div class="small">Confirm or dismiss the possible compilation <a href="#clip-${esc(c)}">${esc(c)}</a> to decide.</div>`).join("");
+    const lostSpans = e.lost_spans.map((l) => `<div class="small">${nm(l.clip)} contains footage of ${esc(w.id)} over ${sp(l)}${note(l)}</div>`).join("");
+    const partial = e.partial.map((l) => `<div class="small muted">${nm(l.clip)} still supports it over ${sp(l)} (${esc(l.recording)})</div>`).join("");
+    const possible = (e.possible || []).map((l) => `<div class="small muted">possible: ${nm(l.clip)} over ${sp(l)} (${esc(l.recording)})${note(l)}</div>`).join("");
+    const unconfirmed = (e.unconfirmed || []).map((c) => `<div class="small">Confirm or dismiss the possible compilation <a href="#clip-${esc(c)}">${nm(c)}</a> to decide.</div>`).join("");
     return `<li><strong>${esc(e.claim_id)}</strong>${text(e.claim_id)}${left}${tied}${lostSpans}${partial}${possible}${unconfirmed}</li>`;
   };
   const list = (title, rows, cls = "") => `<h3 class="${cls}">${title} (${rows.length})</h3>${rows.length ? `<ul class="claims">${rows.join("")}</ul>` : `<p class="muted small">none</p>`}`;
   const open = w.unresolved_pairs.length ? `<div class="warn">Pairs still undecided against this recording: ${w.unresolved_pairs.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}.</div>` : "";
-  return `<p>Withdrawn: <strong>${esc(w.id)}</strong> (${esc(w.status)}), clips ${w.members.map(esc).join(", ")}</p>${open}
+  return `<p>Withdrawn: <strong>${esc(w.id)}</strong> (${esc(w.status)}), clips ${w.members.map(nm).join(", ")}</p>${open}
     ${list("Lose all video support", out.lost.map(item), "lost-h")}
     ${list("Keep some video support", out.kept.map(item))}
     ${list("Undecided: the rest may be the same recording", out.undecided.map(item))}
@@ -299,7 +343,8 @@ function resultsBox() {
 function render() {
   const run = S.run;
   const posts = S.clips.some((c) => c.source), n = S.clips.length;
-  document.getElementById("runinfo").textContent = `${n} ${posts ? "post" : "clip"}${n === 1 ? "" : "s"} → ${S.recordings.length} recording${S.recordings.length === 1 ? "" : "s"} · ${run.sample} · made ${run.created_utc} · ${S.audit.length} human decision${S.audit.length === 1 ? "" : "s"} logged`;
+  const nComp = S.recordings.filter((r) => r.status === "compilation").length, nRec = S.recordings.length - nComp;
+  document.getElementById("runinfo").textContent = `${n} ${posts ? "post" : "clip"}${n === 1 ? "" : "s"} → ${nRec} recording${nRec === 1 ? "" : "s"}${nComp ? ` + ${nComp} compilation${nComp === 1 ? "" : "s"}` : ""} · ${run.sample} · made ${run.created_utc} · ${S.audit.length} human decision${S.audit.length === 1 ? "" : "s"} logged`;
   const todo = S.pairs.filter((p) => p.band === "unresolved");
   document.getElementById("todo").innerHTML = todo.length ? todo.map(pairCard).join("") : `<p class="muted">Nothing is waiting for a decision.</p>`;
   document.getElementById("comp-sec").hidden = !S.suggestions.length;
@@ -311,9 +356,10 @@ function render() {
   withdrawBox();
   resultsBox();
   const dismissed = Object.entries(S.clip_decisions).filter(([, d]) => d.action === "dismiss_compilation");
-  document.getElementById("hand").innerHTML = hand.length + dismissed.length
-    ? hand.map(pairCard).join("") + dismissed.map(([clip, d]) => dismissedCard(clip, d)).join("")
-    : `<p class="muted">No pair has been decided by hand yet.</p>`;
+  const confirmed = Object.entries(S.clip_decisions).filter(([clip, d]) => d.action === "confirm_compilation" && S.recordings.some((r) => r.status === "compilation" && r.members[0] === clip));
+  document.getElementById("hand").innerHTML = hand.length + dismissed.length + confirmed.length
+    ? hand.map(pairCard).join("") + confirmed.map(([clip, d]) => confirmedCard(clip, d)).join("") + dismissed.map(([clip, d]) => dismissedCard(clip, d)).join("")
+    : `<p class="muted">Nothing has been decided by hand yet.</p>`;
 }
 
 async function decide(button) {

@@ -540,3 +540,27 @@ def test_the_page_words_a_partial_pair_inside_one_recording_as_the_same_recordin
     page = wall.PAGE.read_text()
     assert "shares only part of its footage with" in page and "same recording, joined through other links" in page
     assert "g.recording === recOf(g.clip)" in page and "g.recording === r.id" in page
+
+
+def test_the_page_names_posts_shows_the_verdict_first_and_counts_compilations_apart():
+    page = wall.PAGE.read_text()
+    assert "const nm = " in page and "`post ${i + 1}`" in page  # a clip with a source is "post N", not a long id
+    assert "Verifier says:" in page and "same event, different footage" in page and '/^same\\b/i' in page
+    assert page.index("verdict = `") < page.index("<strong>History</strong>")  # the verdict comes before the history line
+    assert "recording${nRec === 1" in page and "compilation${nComp === 1" in page
+    assert "function sharedPrefix" in page and "const stretchOf" in page and "comes from:" in page
+    assert "overflow-wrap: anywhere" in page.split(".post {")[1].split("}")[0]
+
+
+def test_compilation_stretches_carry_their_source_clips(suggested):
+    s = wall.state(suggested)
+    assert all(g["clips"] for g in s["suggestions"][0]["segments"])  # the page names each stretch by these clips, not by recording id
+
+
+def test_a_confirmed_compilation_is_listed_under_decided_by_hand(suggested):
+    page = wall.PAGE.read_text()
+    assert "compilation confirmed by hand" in page and "Nothing has been decided by hand yet." in page
+    wall.append_audit(suggested, None, "confirm_compilation", "cut from two", clip="v_upload")
+    s = wall.state(suggested)
+    assert s["clip_decisions"]["v_upload"]["action"] == "confirm_compilation"
+    assert any(r["status"] == "compilation" and r["members"] == ["v_upload"] for r in s["recordings"])
