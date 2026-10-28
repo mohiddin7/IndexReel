@@ -72,6 +72,8 @@ Let n be the partial copies that sit in their family's recording when the rule i
 
 The rule passes with all five.
 
+**Amendment 1 (Oct 28, before the rule was run on anything).** Bar 4 as written cannot hold: the frozen dev run `data/match_dev_fixtures_floor020` was made before the `core_*` columns existed and before the mirror margin (Amendment 2 of `eval/match-thresholds.md`), which changed `mirrored`, `aligned` and the offsets of 124 of its pairs but no band. Bar 4 now reads: the 276 fixture pairs have every column identical to `data/identity_old/pairs.csv` (the same fixtures matched by the code at 23614a4, which the pending re-film arm uses) apart from the two new cover columns, none of them is partial, and their bands and the recordings of the fixtures are the same as in `data/match_dev_fixtures_floor020`.
+
 ## Reported, not scored
 
 - Bars 1 to 5 on the build split (development numbers), and the values of `SHARE` and `G` tried there.
