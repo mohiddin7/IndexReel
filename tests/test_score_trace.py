@@ -37,8 +37,9 @@ def setup(tmp_path):
 
 
 def answer(out, name, default="same", **by_case):
-    key = {r["row"]: r["case"] for r in st.read(out / "key.csv")}
-    rows = st.read(out / name)
+    col = "row1" if name == "sheet1.csv" else "row2"
+    key = {r[col]: r["case"] for r in st.read(out / "key.csv") if r[col]}
+    rows = st.read(out / name.split(".")[0] / name)
     for r in rows:
         r["answer"] = by_case.get(key[r["row"]], default)
     st.write(out / f"ans_{name}", rows, list(rows[0]))
@@ -47,10 +48,18 @@ def answer(out, name, default="same", **by_case):
 
 def test_sheets_hide_sources_and_controls(tmp_path):
     out = setup(tmp_path)
-    s1, s2 = (out / "sheet1.csv").read_text(), st.read(out / "sheet2.csv")
+    s1, s2 = (out / "sheet1" / "sheet1.csv").read_text(), st.read(out / "sheet2" / "sheet2.csv")
     assert "youtube" not in s1 and "web" not in s1 and "c1" not in s1 and "t1" not in s1
     assert {r["original"] for r in s2} == {"orig t1", "orig t2", "orig t3", "orig t4"}  # no control on sheet 2
-    assert cv2.imread(str(out / s2[0]["candidate"])).shape[1] == 320  # the candidate half only
+    assert cv2.imread(str(out / "sheet2" / s2[0]["candidate"])).shape[1] == 320  # the candidate half only
+
+
+def test_the_two_sheets_share_no_row_ids_labels_or_images(tmp_path):
+    out = setup(tmp_path)
+    s1, s2 = st.read(out / "sheet1" / "sheet1.csv"), st.read(out / "sheet2" / "sheet2.csv")
+    assert not {r["row"] for r in s1} & {r["row"] for r in s2}
+    assert not {r["case"] for r in s1} & {r["case"] for r in s2}
+    assert not {p.name for p in (out / "sheet1" / "img").iterdir()} & {p.name for p in (out / "sheet2" / "img").iterdir()}
 
 
 def test_score_counts_leaks_per_copy_and_fails_on_any_unclear_link(tmp_path):
