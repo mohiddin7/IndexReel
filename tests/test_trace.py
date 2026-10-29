@@ -211,3 +211,19 @@ def test_a_named_channel_is_searched_and_comes_before_global_search(tmp_path):
         assert all(src != "channel" for src, _, _ in s2.candidates(str(tmp_path / "v.mp4"), [])[0])  # a bad handle is ignored
     finally:
         CH.clear()
+
+
+def test_core_evidence_shows_three_rows_from_inside_the_core_span(tmp_path):
+    import subprocess
+    import cv2
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x180:rate=5", "-t", "12", "-pix_fmt",
+                    "yuv420p", str(v)], check=True)
+    pdir = tmp_path / "pair"
+    pdir.mkdir()
+    for name in ("input_x.mp4", "youtube_y.mp4"):
+        (pdir / name).symlink_to(v)
+    p = {"a": "input_x", "b": "youtube_y", "core_a_start_s": "2", "core_a_end_s": "8", "offset_s": "1", "mirrored": "0"}
+    assert trace.core_evidence(pdir, p, tmp_path / "out" / "core.jpg")
+    assert cv2.imread(str(tmp_path / "out" / "core.jpg")).shape[:2] == (3 * cli.THUMB[1], 2 * cli.THUMB[0])
+    assert not trace.core_evidence(pdir, {**p, "core_a_start_s": ""}, tmp_path / "none.jpg")

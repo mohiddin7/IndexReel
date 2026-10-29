@@ -44,7 +44,7 @@ SEARCHES = 3  # web searches Spark is asked to make at most
 QUERIES = 3  # YouTube queries
 PER_QUERY = 5
 SIZE = 360  # largest shorter side fetched
-MAX_S = 900  # longest candidate fetched, seconds
+MAX_S = 1800  # longest candidate fetched, seconds (the coarse pass keeps long ones cheap to match)
 COARSE_OVER = 90  # candidates longer than this (s) are first cut to the stretch a coarse pass flags
 COARSE_STEP = 4  # the coarse pass looks at one frame every this many seconds
 MARGIN = 15  # seconds kept on each side of that stretch; inside it the match runs at 1 frame per second as usual
@@ -212,6 +212,39 @@ def narrow(model, input_path, cdir, work, rows, log=print):
             f"{time.time() - t0:.1f} s")
 
 
+def frame_at(path, t):
+    import cv2
+    cap = cv2.VideoCapture(str(path))
+    cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, t) * 1000)
+    ok, f = cap.read()
+    cap.release()
+    return f if ok else None
+
+
+def core_evidence(pdir, p, out):
+    """Three aligned frame pairs from inside the pair's core span (where the two clips really match), so the image
+    shows the link even when the input is cut from a longer video. Returns False when the pair has no core span."""
+    import cv2
+    import numpy as np
+    if not p.get("core_a_start_s"):
+        return False
+    a0, a1, k = float(p["core_a_start_s"]), float(p["core_a_end_s"]), float(p["offset_s"])
+    path = {f.stem: f for f in pdir.iterdir() if f.is_symlink()}
+    ts = sorted({a0 + 0.5, (a0 + a1) / 2, max(a0 + 0.5, a1 - 0.5)})
+    rows = []
+    for t in ts + [ts[-1]] * (3 - len(ts)):
+        fa, fb = frame_at(path[p["a"]], t), frame_at(path[p["b"]], t + k)
+        if fa is None or fb is None:
+            return False
+        left, right = cli.thumb(fa[:, ::-1] if p.get("mirrored") == "1" else fa), cli.thumb(fb)
+        for img, name, at in ((left, p["a"], t), (right, p["b"], t + k)):
+            cv2.putText(img, f"{name[:22]} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        rows.append(np.hstack([left, right]))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 75])
+    return True
+
+
 class Searcher:
     """The two sources with caching and a spending cap. spark and search are injectable for tests."""
 
@@ -354,8 +387,10 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             log(f"trace: {r['clip']} matched in {time.time() - t0:.0f} s")
             if p is None:
                 continue
-            r.update({"band": cluster.effective_band(p), "verify_verdict": p.get("verify_verdict", ""),
-                      "evidence": f"trace/{rec['id']}/pairs/{r['clip']}/run/{p['evidence']}" if p.get("evidence") else ""})
+            ev = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
+            if not (p.get("evidence") and core_evidence(pdir, p, run / ev)):
+                ev = f"trace/{rec['id']}/pairs/{r['clip']}/run/{p['evidence']}" if p.get("evidence") else ""
+            r.update({"band": cluster.effective_band(p), "verify_verdict": p.get("verify_verdict", ""), "evidence": ev})
             r["confirmed"] = int(r["band"] == "merged")
             dated = r.get("platform") in PLATFORMS and day(r.get("posted_at"))
             r["earlier"] = (int(day(r["posted_at"]) < before) if before else "") if dated else ""

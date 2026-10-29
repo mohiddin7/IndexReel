@@ -200,13 +200,13 @@ One JSON object per line, appended and never edited:
 | `query` | the YouTube query that found it; empty for `web` |
 | `url` | the candidate post |
 | `platform`, `post_id`, `account`, `posted_at` | from the fetched post's sidecar (see Fetching posts); `posted_at` is the platform's own post time |
-| `fetch` | `ok`, `error <code>` (codes as in Fetching posts), `excluded` (a fact-checking site or web archive), `not_a_post` (not a post on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo), `over_cap` (more than 10 candidates), `same_post_as_input` |
+| `fetch` | `ok`, `error <code>` (codes as in Fetching posts), `excluded` (a fact-checking site or web archive), `not_a_post` (not a post on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo), `over_cap` (more than 10 candidates); a video longer than 30 minutes fails with `error other`, `same_post_as_input` |
 | `clip` | the fetched candidate's id in `trace/<recording>/clips/` |
 | `duration_s` | the fetched video's length |
 | `cut_start_s`, `cut_end_s`, `coarse` | for a candidate longer than 90 s: the stretch it was cut to before matching (a coarse pass at one frame every 4 s finds the stretch most like the input, plus the input's length and 15 s on each side) and the coarse pass's best cosine; empty otherwise. Times in the evidence are relative to the cut |
 | `band` | the effective band of the pair (input, candidate), from `indexreel match` and the verify stage run on those two clips alone (`trace/<recording>/pairs/<clip>/run/`) |
 | `verify_verdict` | the verifier's verdict on that pair, empty when it was not asked |
-| `evidence` | the pair's evidence image, relative to the run directory |
+| `evidence` | an evidence image relative to the run directory: `trace/<recording>/pairs/<clip>/core.jpg`, three aligned frame pairs (start, middle, end) from inside the pair's core span, the input on the left; the matcher's own image when the pair has no core span |
 | `confirmed` | 1 when `band` is `merged`, else 0 |
 | `earlier` | 1 when the platform dates the post on a UTC day before the claimed date, 0 when not; empty when the post has no platform date (yt-dlp's generic extractor or no date) or no claimed date is known |
 | `leak_exposed` | 1 when any web search hit for this recording was on a fact-checking site or web archive, or had a fact-check title (`trace/<recording>/search_hits.json` lists them) |
