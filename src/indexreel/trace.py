@@ -411,9 +411,28 @@ def frame_at(path, t):
     return f if ok else None
 
 
-def core_evidence(pdir, p, out):
-    """Three aligned frame pairs from inside the pair's core span (where the two clips really match), so the image
-    shows the link even when the input is cut from a longer video. Returns False when the pair has no core span."""
+_NETS = {}
+
+
+def best_match_times(model, frames, path, b0, b1, step=0.5):
+    """For each frame, the time in [b0, b1] of `path` whose frame SSCD finds most alike. The matcher aligns by one
+    offset, which drifts when the input is slowed down or sped up; this follows the footage instead."""
+    from indexreel import sscd
+    if model not in _NETS:
+        _NETS[model] = sscd.load(model)
+    cand = [(t, frame_at(path, t)) for t in [b0 + step * i for i in range(int((b1 - b0) / step) + 1)]]
+    cand = [(t, f) for t, f in cand if f is not None]
+    if not cand:
+        return None
+    sims = sscd.embed(_NETS[model], frames) @ sscd.embed(_NETS[model], [f for _, f in cand]).T
+    return [cand[i][0] for i in sims.argmax(1)]
+
+
+def core_evidence(pdir, p, out, model=None):
+    """Three frame pairs from inside the pair's core span (where the two clips really match), so the image shows the
+    link even when the input is cut from a longer video. With an SSCD model, each input frame is shown beside the
+    candidate frame in the core span most like it; without one, beside the frame at the matcher's offset. Returns
+    False when the pair has no core span."""
     import cv2
     import numpy as np
     if not p.get("core_a_start_s"):
@@ -421,13 +440,21 @@ def core_evidence(pdir, p, out):
     a0, a1, k = float(p["core_a_start_s"]), float(p["core_a_end_s"]), float(p["offset_s"])
     path = {f.stem: f for f in pdir.iterdir() if f.is_symlink()}
     ts = sorted({a0 + 0.5, (a0 + a1) / 2, max(a0 + 0.5, a1 - 0.5)})
+    ts = ts + [ts[-1]] * (3 - len(ts))
+    fas = [frame_at(path[p["a"]], t) for t in ts]
+    if any(f is None for f in fas):
+        return False
+    fas = [f[:, ::-1] if p.get("mirrored") == "1" else f for f in fas]
+    tbs = [t + k for t in ts]
+    if model is not None and p.get("core_b_start_s"):
+        tbs = best_match_times(model, fas, path[p["b"]], float(p["core_b_start_s"]), float(p["core_b_end_s"])) or tbs
     rows = []
-    for t in ts + [ts[-1]] * (3 - len(ts)):
-        fa, fb = frame_at(path[p["a"]], t), frame_at(path[p["b"]], t + k)
-        if fa is None or fb is None:
+    for t, tb, fa in zip(ts, tbs, fas):
+        fb = frame_at(path[p["b"]], tb)
+        if fb is None:
             return False
-        left, right = cli.thumb(fa[:, ::-1] if p.get("mirrored") == "1" else fa), cli.thumb(fb)
-        for img, name, at in ((left, p["a"], t), (right, p["b"], t + k)):
+        left, right = cli.thumb(fa), cli.thumb(fb)
+        for img, name, at in ((left, p["a"], t), (right, p["b"], tb)):
             cv2.putText(img, f"{name[:22]} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -668,7 +695,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             if p is None:
                 continue
             ev = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
-            if not (p.get("evidence") and core_evidence(pdir, p, run / ev)):
+            if not (p.get("evidence") and core_evidence(pdir, p, run / ev, model)):
                 ev = f"trace/{rec['id']}/pairs/{r['clip']}/run/{p['evidence']}" if p.get("evidence") else ""
             r.update({"band": cluster.effective_band(p), "verify_verdict": p.get("verify_verdict", ""), "evidence": ev})
             r["confirmed"] = int(r["band"] == "merged")

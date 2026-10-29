@@ -412,3 +412,17 @@ def test_youtube_dates_come_from_the_data_api_when_it_is_on(tmp_path, monkeypatc
     s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
     assert s.notes["https://www.youtube.com/watch?v=late"] == "too_long" and "https://www.youtube.com/watch?v=old" not in s.notes
     assert metas == []  # no yt-dlp request for a date the API gave
+
+
+def test_evidence_follows_a_slowed_input(tmp_path):
+    import subprocess
+    import pytest
+    if not cli.MODEL.exists():
+        pytest.skip("SSCD model not present")
+    orig, slow = tmp_path / "o.mp4", tmp_path / "s.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x240:rate=10", "-t", "20", "-pix_fmt",
+                    "yuv420p", str(orig)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-ss", "4", "-to", "12", "-i", str(orig), "-vf", "setpts=2*PTS", str(slow)], check=True)
+    frames = [trace.frame_at(slow, t) for t in (1.0, 8.0, 15.0)]
+    got = trace.best_match_times(cli.MODEL, frames, orig, 4.0, 12.0)
+    assert [abs(g - (4 + t / 2)) <= 0.5 for g, t in zip(got, (1.0, 8.0, 15.0))] == [True] * 3  # an offset alone would drift
