@@ -220,6 +220,7 @@ One JSON object per line, appended and never edited:
 | `strength` | on the shown row only: `strong` when two families found it, or when the date search below gives a date on or before its post date, cited by at least two sites; else `single-source` |
 | `corroborated_date` | on the shown row only: the date of the footage's event from a separate web search, when it counts as corroboration; else empty |
 | `corroboration_urls` | on the shown row only: the pages that search cited, separated by spaces. Fact-check pages may be among them; they never find candidates |
+| `date_check` | `id_agrees` or `id_differs` when the post id itself carries its post time (X, TikTok and Instagram ids do) and is within a day of `posted_at` or not; `editable` for Facebook and Vimeo, where a post's date can be changed or its video replaced later; else empty. A copy whose id differs from its date is never `earlier` |
 
 - The claimed date of a recording is the earliest date in `--claimed-dates` (CSV `clip, claimed_date`) for its clips, else the earliest `posted_at` of its clips.
 - Search reads only what the recording's clip shows. No claim, caption or post text goes into it: a claim may be false in its event, place or date, and searching for it pulls in material about the claimed event (`eval/trace.md`, Amendment A). The claims stay in `claims.csv` and on the page, beside the earliest copy.

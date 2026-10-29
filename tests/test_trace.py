@@ -98,18 +98,18 @@ def test_post_urls_only_from_platforms():
 
 
 def test_earliest_confirmed_earlier_copy_is_shown_and_later_or_undated_ones_are_not(tmp_path):
-    web = ["https://factcheck.afp.com/doc.afp.com.9U673E", "https://x.com/u/status/9", "https://www.usgs.gov/v"]
-    posted = {"https://x.com/u/status/9": ("twitter", "9", "2017-01-28"),
+    web = ["https://factcheck.afp.com/doc.afp.com.9U673E", "https://x.com/u/status/825312465515446272", "https://www.usgs.gov/v"]
+    posted = {"https://x.com/u/status/825312465515446272": ("twitter", "825312465515446272", "2017-01-28"),
               "https://www.youtube.com/watch?v=old": ("youtube", "old", "2017-02-02"),
               "https://www.youtube.com/watch?v=late": ("youtube", "late", "2022-01-01")}
-    bands = {"twitter_9": "merged", "youtube_old": "merged", "youtube_late": "merged"}
+    bands = {"twitter_825312465515446272": "merged", "youtube_old": "merged", "youtube_late": "merged"}
     run, s, rows = go(tmp_path, FakeSpark(web), posted, bands)
     by = {r["url"]: r for r in rows}
     assert by[web[0]]["fetch"] == "excluded" and by[web[2]]["fetch"] == "not_a_post"
-    assert by["https://x.com/u/status/9"]["platform"] == "x" and by["https://x.com/u/status/9"]["earlier"] == 1
+    assert by["https://x.com/u/status/825312465515446272"]["platform"] == "x" and by["https://x.com/u/status/825312465515446272"]["earlier"] == 1
     assert by["https://www.youtube.com/watch?v=late"]["fetch"] == "enough_copies"  # two earlier copies came first
-    assert [r["url"] for r in rows if r["shown"] == 1] == ["https://x.com/u/status/9"]
-    assert by["https://x.com/u/status/9"]["evidence"].startswith("trace/r1/pairs/twitter_9/run/frames/")
+    assert [r["url"] for r in rows if r["shown"] == 1] == ["https://x.com/u/status/825312465515446272"]
+    assert by["https://x.com/u/status/825312465515446272"]["evidence"].startswith("trace/r1/pairs/twitter_825312465515446272/run/frames/")
     out = list(csv.DictReader(open(run / "trace.csv", newline="")))
     assert list(out[0]) == trace.COLUMNS and len(out) == len(rows)
 
@@ -677,3 +677,23 @@ def test_a_different_recording_gets_no_crop(tmp_path):
     other = _mandel(tmp_path, "life=s=480x360:rate=5:seed=3:mold=10")
     a, b, crop = trace.matched_view(wide, other)
     assert crop == "" and a.shape == wide.shape and b.shape == other.shape
+
+
+def test_post_ids_carry_their_post_time():
+    # real posts, dates as their platforms give them (checked with yt-dlp metadata on Oct 29 2026)
+    assert trace.id_day("x", "1520225905817403392") == "2022-04-30"  # Reed Timmer, Andover tornado
+    assert trace.id_day("tiktok", "7406419004962704682") == "2024-08-23"  # Remington Fire, Wyoming
+    assert trace.id_day("instagram", "CJ4osaYhmch") == "2021-01-11"  # Kapuche Lake avalanche
+    assert trace.id_day("youtube", "abc") is None and trace.id_day("x", "notanumber") is None
+    assert trace.date_check("x", "1520225905817403392", "2022-04-30T20:00:00Z") == "id_agrees"
+    assert trace.date_check("x", "1520225905817403392", "2023-01-01T00:00:00Z") == "id_differs"
+    assert trace.date_check("facebook", "1", "2018-09-16T00:00:00Z") == "editable"
+    assert trace.date_check("youtube", "abc", "2018-09-16T00:00:00Z") == ""
+
+
+def test_a_copy_whose_id_contradicts_its_date_is_never_shown_as_earlier(tmp_path):
+    posted = {"https://x.com/u/status/1520225905817403392": ("twitter", "1520225905817403392", "2016-01-01")}  # id says 2022
+    _, _, rows = go(tmp_path, FakeSpark(["https://x.com/u/status/1520225905817403392"]), posted,
+                    {"twitter_1520225905817403392": "merged"}, dates={"viral": "2021-12-05"})
+    r = next(r for r in rows if r["url"].startswith("https://x.com"))
+    assert r["date_check"] == "id_differs" and r["earlier"] == "" and r["shown"] == 0

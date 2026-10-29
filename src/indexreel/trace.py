@@ -76,7 +76,7 @@ PACE_S = 2  # seconds yt-dlp waits between requests to a platform: YouTube asks 
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
            "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy", "prerank", "families", "strength",
-           "corroborated_date", "corroboration_urls"]
+           "corroborated_date", "corroboration_urls", "date_check"]
 
 QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
 The footage may be older than it seems or from somewhere else, so work only from what the video shows.
@@ -125,6 +125,42 @@ def post_url(url):
     if "youtube.com" in (p.hostname or "") and not (p.path == "/watch" and "v=" in p.query or p.path.startswith(("/shorts/", "/live/"))):
         return None
     return url
+
+
+IG_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+EDITABLE = {"facebook", "vimeo"}  # platforms where a post's date can be changed after posting, or its video replaced
+
+
+def id_day(platform, post_id):
+    """The UTC day a post id was issued, for platforms whose ids carry their time (X, TikTok, Instagram), else None."""
+    pid = str(post_id or "")
+    try:
+        if platform == "x" and pid.isdigit():
+            secs = ((int(pid) >> 22) + 1288834974657) / 1000
+        elif platform == "tiktok" and pid.isdigit():
+            secs = int(pid) >> 32
+        elif platform == "instagram" and pid and all(c in IG_ALPHABET for c in pid[:11]):
+            pk = 0
+            for c in pid[:11]:
+                pk = pk * 64 + IG_ALPHABET.index(c)
+            secs = ((pk >> 23) + 1314220021721) / 1000
+        else:
+            return None
+    except (ValueError, OverflowError):
+        return None
+    return time.strftime("%Y-%m-%d", time.gmtime(secs)) if 1104537600 < secs < 4102444800 else None  # 2005-2100
+
+
+def date_check(platform, post_id, posted_at):
+    """`id_agrees` or `id_differs` (more than a day apart) when the post id carries a time, `editable` on platforms
+    where a date can be changed after posting, else empty."""
+    if platform in EDITABLE:
+        return "editable"
+    d, p = id_day(platform, post_id), day(posted_at)
+    if not d or not p:
+        return ""
+    from datetime import date
+    return "id_agrees" if abs((date.fromisoformat(d) - date.fromisoformat(p)).days) <= 1 else "id_differs"
 
 
 def day(stamp):
@@ -957,6 +993,9 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             r["confirmed"] = int(r["band"] == "merged")
             dated = r.get("platform") in PLATFORMS and day(r.get("posted_at"))
             r["earlier"] = (int(day(r["posted_at"]) < before) if before else "") if dated else ""
+            r["date_check"] = date_check(r.get("platform"), r.get("post_id"), r.get("posted_at"))
+            if r["date_check"] == "id_differs":  # the post's own id contradicts its date: never shown as earlier
+                r["earlier"] = ""
             found += int(r["confirmed"] == 1 and r["earlier"] == 1)
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
