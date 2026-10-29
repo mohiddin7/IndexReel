@@ -112,3 +112,12 @@ Bar 1 failing makes the run a FAIL whatever bar 2 says. The run passes only if 1
 - "Same recording" is one blind reviewer's judgement, against the fact-check's description, not ground truth.
 - A post time says when a clip was posted, not when it was filmed.
 - Platforms delete posts, so a miss can mean the upload is gone (t6).
+
+## Clarification 1 (Oct 28 2026, before any data)
+
+Written after the commit above and before any trace code existed. No dev or test clip had been fetched, matched or scored. It splits the blind check into two questions, because "cannot tell" means different things in each. Each question is asked on its own sheet.
+
+- **(i) Same recording as the input?** The reviewer sees trace's side-by-side evidence image: input frames beside candidate frames. The answers are `same`, `different` or `cannot tell`. **`different` or `cannot tell` is a wrong statement under bar 1**: if our own evidence does not make the link plain, trace should not show the copy.
+- **(ii) Does the candidate show the earlier footage the fact-check describes?** The reviewer sees the candidate's frames, the fact-check's description of the original and the platform date, not the input. It may be any upload of that footage, not only the post the fact-check links. The answers are the same three. **`different` or `cannot tell` only means not found under bar 2.** A vague fact-check description is not a fault of the tool.
+
+A case is found when (i) and (ii) are both `same`, together with conditions (i) and (ii) of the found rule above (date and leak rule). For controls only question (i) is asked, and any earlier confirmed copy is a wrong statement, as before. The rest of the blind check is unchanged: rows are shuffled, test and control rows are mixed, and the sheet does not say which source found a row. Where this clarification and the paragraph "Blind same-recording check" differ, this clarification holds.
