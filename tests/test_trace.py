@@ -597,3 +597,12 @@ def test_a_preview_frame_score_that_could_not_be_made_is_not_cached(tmp_path, mo
     (tmp_path / "v.mp4").write_bytes(b"x")
     assert th.scores(str(tmp_path / "v.mp4"), ["abc"]) == {"abc": None}
     assert not list((tmp_path / "c").glob("*.json"))
+
+
+def test_a_failed_date_read_is_not_cached(tmp_path):
+    answers = [None, {"day": "2022-01-01", "duration": 30}]
+    s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"]), meta=lambda u: answers.pop(0) if u.startswith("https://x.com") else {})
+    s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert "https://x.com/u/status/9" not in s.notes  # unknown date: fetched, and the platform date decides later
+    s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert s.notes["https://x.com/u/status/9"] == "after_claim"  # read again on the rerun, not taken from the cache

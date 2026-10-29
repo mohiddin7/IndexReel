@@ -259,17 +259,19 @@ def keyframes(path, k=KEYFRAMES):
 
 
 def post_meta(url):
-    """{day, duration} of a post from its platform, read by yt-dlp without downloading."""
+    """{day, duration} of a post from its platform, read by yt-dlp without downloading; None when the read fails."""
     try:
         time.sleep(PACE_S)
         r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--skip-download", "--socket-timeout", "20",
                             "--print", "%(extractor)s\t%(timestamp)s\t%(upload_date)s\t%(duration)s", "--", url],
                            capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
-        return {}
+        return None
     ln = (r.stdout.strip().splitlines() or [""])[-1].split("\t")
-    if len(ln) != 4 or ln[0].lower() == "generic":
-        return {}
+    if len(ln) != 4:
+        return None  # the read failed: None is not cached, so a rerun reads again
+    if ln[0].lower() == "generic":
+        return {}  # a page, not a platform: no platform date
     ex, ts, ud, d = ln
     if ts not in ("", "NA"):
         dayv = time.strftime("%Y-%m-%d", time.gmtime(float(ts)))
@@ -725,6 +727,7 @@ class Searcher:
                 dayv = (info.get(u) or {}).get("day")
                 if dayv is None:
                     m = self._cached(["meta", u], lambda: self.meta(u))
+                    m = m if isinstance(m, dict) else {}
                     dayv, d = m.get("day"), m.get("duration")
                     if d and d > MAX_S:
                         self.notes[u] = "too_long"
