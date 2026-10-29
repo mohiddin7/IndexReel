@@ -25,10 +25,10 @@ def setup(tmp_path):
     rows.append({**rows[0], "input": "t5", "confirmed": "0", "earlier": "1"})  # not confirmed: on no sheet
     st.write(run / "trace.csv", rows, COLS)
     man = [{"case": c, "kind": k, "original": f"orig {c}"} for c, k in
-           [("t1", "a"), ("t2", "b"), ("t3", "b"), ("t4", "b"), ("t5", "a"), ("t6", "b"), ("c1", "a")]]
+           [("t1", "a"), ("t2", "b"), ("t3", "b"), ("t4", "b"), ("t5", "a"), ("t6", "b"), ("t7", "none"), ("c1", "a")]]
     st.write(tmp_path / "manifest.csv", man, ["case", "kind", "original"])
     inp = [{"case": "t1", "kind": "a", "edit": ""}, {"case": "t2", "kind": "b", "edit": "flip"}, {"case": "t3", "kind": "b", "edit": "slow"},
-           {"case": "t4", "kind": "b", "edit": "zoom"}, {"case": "t5", "kind": "a", "edit": ""}, {"case": "t6", "kind": "none", "edit": "compilation"},
+           {"case": "t4", "kind": "b", "edit": "zoom"}, {"case": "t5", "kind": "a", "edit": ""}, {"case": "t6", "kind": "none", "edit": "compilation"}, {"case": "t7", "kind": "none", "edit": ""},
            {"case": "c1", "kind": "a", "edit": ""}]
     st.write(tmp_path / "inputs.csv", inp, ["case", "kind", "edit"])
     out = tmp_path / "sheets"
@@ -56,16 +56,17 @@ def test_sheets_hide_sources_and_controls(tmp_path):
 def test_score_counts_leaks_per_copy_and_fails_on_any_unclear_link(tmp_path):
     out, said = setup(tmp_path), []
     ok = st.score(out, answer(out, "sheet1.csv"), answer(out, "sheet2.csv"), say=said.append)
-    # found: t1 (web, not leaky), t3 (leaky but also youtube), t4; not t2 (web only, leaky); t5, t6 nothing
+    # found: t1 (web, not leaky), t3 (leaky but also youtube), t4; not t2 (web only, leaky); t5, t6, t7 nothing
+    # (t7 has no input and was listed as "none": it counts under b)
     assert "score: bar 2a: found 1 of 2, need 1" in said[0] and "PASS" in said[0]
-    assert "score: bar 2b: found 2 of 4, need 2" in said[1] and "PASS" in said[1]
-    assert "including leak-exposed recordings 4 of 6" in said[2] and ok
+    assert "score: bar 2b: found 2 of 5, need 2" in said[1] and "PASS" in said[1]
+    assert "including leak-exposed recordings 4 of 7" in said[2] and ok
     said.clear()
     assert not st.score(out, answer(out, "sheet1.csv", c1="cannot tell"), answer(out, "sheet2.csv"), say=said.append)
     assert any(s.startswith("score: wrong statement") and "c1" in s for s in said)
     said.clear()
     st.score(out, answer(out, "sheet1.csv"), answer(out, "sheet2.csv", t4="cannot tell", t3="different"), say=said.append)
-    assert "found 0 of 4" in said[1] and "FAIL" in said[1] and not any(s.startswith("score: wrong statement") for s in said)
+    assert "found 0 of 5" in said[1] and "FAIL" in said[1] and not any(s.startswith("score: wrong statement") for s in said)
 
 
 def test_wilson():

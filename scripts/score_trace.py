@@ -98,7 +98,8 @@ def score(d, answers1, answers2, say=print):
     out = {}
     for kind in ("a", "b"):
         # a case without an input counts against the kind it was meant for (Bars, bar 2)
-        n = [c["case"] for c in cases if c["case"].startswith("t") and (c["kind"] == kind or (c["kind"] == "none" and c["intended"] == kind))]
+        meant = lambda c: c["intended"] if c["intended"] in ("a", "b") else "b"  # no input: (b) unless a re-upload was meant
+        n = [c["case"] for c in cases if c["case"].startswith("t") and (c["kind"] == kind or (c["kind"] == "none" and meant(c) == kind))]
         k = sum(c in found for c in n)
         need = math.ceil(0.4 * len(n))
         lo, hi = wilson(k, len(n))
