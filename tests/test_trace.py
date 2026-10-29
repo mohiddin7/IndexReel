@@ -92,6 +92,9 @@ def test_post_urls_only_from_platforms():
     assert trace.post_url("https://x.com/a") is None  # a profile, not a post
     assert trace.post_url("https://www.usgs.gov/media/videos/x") is None  # an article page, dated by its text only
     assert trace.post_url("https://www.youtube.com.evil.example/watch?v=a") is None
+    assert trace.post_url("https://www.youtube.com/results?search_query=lava") is None
+    assert trace.post_url("https://www.youtube.com/playlist?list=PL1") is None and trace.post_url("https://www.youtube.com/@USGS") is None
+    assert trace.post_url("https://www.youtube.com/shorts/abc") and trace.post_url("https://youtu.be/abc")
 
 
 def test_earliest_confirmed_earlier_copy_is_shown_and_later_or_undated_ones_are_not(tmp_path):

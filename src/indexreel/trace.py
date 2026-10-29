@@ -59,7 +59,7 @@ QUERY_PROMPT = """You are shown one video and the claims its post made about it.
 The claims may be the false part: the footage may be older or from somewhere else. So put no claimed event name, place or date in any query.
 1. Describe in one sentence what the video shows: the scene, the camera's view, the objects and the motion.
 2. Say who most likely filmed or first published footage like this (for example a space agency, a geological survey, a news agency, a storm chaser, a security camera, a tour operator), and give that organisation's YouTube handle if it is a well-known organisation with an official channel, else "".
-3. Write {n} short YouTube search queries that would reach the earliest upload of this footage: the visible content in plain words; the visible content with the likely source's name; the visible content with an earlier year or an earlier event of the same kind.
+3. Write {n} short YouTube search queries that would reach the earliest upload of this footage: the visible content in plain words; the visible content with the likely source's name; the visible content with an earlier year or an earlier event of the same kind. If the video shows or speaks a language other than English, write one of the queries in that language.
 Return {{"description": "...", "source": "...", "handle": "@...", "queries": ["...", ...]}}.
 Claims: {claims}"""
 
@@ -91,9 +91,15 @@ def leaky(hits):
 
 
 def post_url(url):
-    """The URL if it may be fetched as a candidate post, else None."""
+    """The URL if it may be fetched as a candidate post, else None. On YouTube only single videos count, not search
+    results, playlists or channels."""
     url = (url or "").strip()
-    return url if url and not excluded(url) and not fetch.valid_url(url, HOSTS) else None
+    if not url or excluded(url) or fetch.valid_url(url, HOSTS):
+        return None
+    p = urlsplit(url)
+    if "youtube.com" in (p.hostname or "") and not (p.path == "/watch" and "v=" in p.query or p.path.startswith(("/shorts/", "/live/"))):
+        return None
+    return url
 
 
 def day(stamp):
