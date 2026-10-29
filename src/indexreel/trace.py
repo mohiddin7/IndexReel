@@ -339,7 +339,10 @@ class Thumbs:
                     self.feats[clip] = np.vstack(sscd.clip_features(self.net, clip))
                 imgs = [cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR) for b in got[vid] if b]
                 imgs = [i for i in imgs if i is not None]
-                hit = {"score": float((sscd.embed(self.net, imgs) @ self.feats[clip].T).max()) if imgs else None}
+                if not imgs:  # nothing downloaded: no score, and not cached, so a rerun tries again
+                    out[vid] = None
+                    continue
+                hit = {"score": float((sscd.embed(self.net, imgs) @ self.feats[clip].T).max())}
                 self.cache.put(key, hit)
             out[vid] = hit["score"]
         return out
@@ -693,20 +696,26 @@ class Searcher:
             ids = {u: youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)}
             sc = self.thumbs.scores(clip, sorted(set(ids.values())))
             self.scores = {u: sc.get(v) for u, v in ids.items() if sc.get(v) is not None}
-            # posts that cannot be pre-ranked (not on YouTube) keep their turn ahead of ranked ones
-            order.sort(key=lambda o: -self.scores.get(o[2], 2.0))
+            # posts that cannot be pre-ranked (not on YouTube) keep their turn ahead of ranked ones; YouTube results
+            # without preview frames to score go last
+            order.sort(key=lambda o: -self.scores[o[2]] if o[2] in self.scores else (1.0 if youtube_id(o[2]) else -2.0))
         if self.date_filter and before and "ytapi" in self.sources:  # YouTube dates from the Data API, not yt-dlp
             ids = sorted({youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)})
-            known = {}
+            known, asked = {}, set()
             for i in range(0, len(ids), 50):
-                known.update(self._google("ytapi", ["videos", ids[i:i + 50]], lambda: self.google.video_info(ids[i:i + 50])))
+                got = self._google("ytapi", ["videos", ids[i:i + 50]], lambda: self.google.video_info(ids[i:i + 50]))
+                if isinstance(got, dict):  # the API answered for these ids
+                    known.update(got)
+                    asked |= set(ids[i:i + 50])
             for _, _, u in order:
-                v = known.get(youtube_id(u) or "")
-                if v:
-                    info.setdefault(u, {}).update({k: x for k, x in v.items() if x is not None})
+                vid = youtube_id(u) or ""
+                if vid in known:
+                    info.setdefault(u, {}).update({k: x for k, x in known[vid].items() if x is not None})
+                elif vid in asked:
+                    self.notes[u] = "unavailable"  # the API does not return it: deleted or private
         kept = 0
         for _, _, u in order:
-            if kept >= MAX_CANDIDATES or not post_url(u):
+            if kept >= MAX_CANDIDATES or not post_url(u) or u in self.notes:
                 continue
             d = (info.get(u) or {}).get("duration")
             if d and d > MAX_S:

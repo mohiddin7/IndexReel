@@ -571,3 +571,29 @@ def test_one_video_is_one_candidate_whatever_its_url(tmp_path):
         assert trace.canonical("https://www.facebook.com/watch/?v=277009859582647&ref=x") == "https://www.facebook.com/watch/?v=277009859582647"
     finally:
         YT.pop("dupes")
+
+
+def test_unranked_youtube_results_go_last_and_vanished_videos_are_skipped(tmp_path, monkeypatch):
+    class Thumbs:
+        def scores(self, clip, ids):
+            return {"old": 0.2}  # "late" has no preview frames to score
+    YT["mix"] = ["https://www.youtube.com/watch?v=late", "https://www.youtube.com/watch?v=old"]
+    try:
+        g = trace.Google("k")
+        monkeypatch.setattr(g, "videos", lambda q, before, n: [])
+        monkeypatch.setattr(g, "video_info", lambda ids: {"old": {"day": "2017-01-01", "duration": 30}})  # "late" is gone
+        s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"], queries=("mix",)), thumbs=Thumbs(), google=g)
+        order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+        assert [u for _, _, u in order] == ["https://x.com/u/status/9", "https://www.youtube.com/watch?v=old",
+                                            "https://www.youtube.com/watch?v=late"]
+        assert s.notes["https://www.youtube.com/watch?v=late"] == "unavailable"
+    finally:
+        YT.pop("mix")
+
+
+def test_a_preview_frame_score_that_could_not_be_made_is_not_cached(tmp_path, monkeypatch):
+    th = trace.Thumbs(cli.MODEL, verify.Cache(tmp_path / "c"))
+    monkeypatch.setattr(th, "_get", lambda url: None)  # every download fails
+    (tmp_path / "v.mp4").write_bytes(b"x")
+    assert th.scores(str(tmp_path / "v.mp4"), ["abc"]) == {"abc": None}
+    assert not list((tmp_path / "c").glob("*.json"))
