@@ -484,12 +484,39 @@ def mirrored(ins, cands):
 
 def from_input(p):
     """The pair as seen from the input: (input id, candidate id, input core span, candidate core span, offset k with
-    candidate time = input time + k). The matcher orders a pair by sorted id, and some platforms sort before
-    "input_", so the input may be its `b`."""
-    span = lambda side: (float(p[f"core_{side}_start_s"]), float(p[f"core_{side}_end_s"])) if p.get(f"core_{side}_start_s") else None
+    candidate time = input time + k, input cover span, candidate cover span). The matcher orders a pair by sorted id,
+    and some platforms sort before "input_", so the input may be its `b`."""
+    def span(kind, side):
+        a, b = p.get(f"{kind}_{side}_start_s"), p.get(f"{kind}_{side}_end_s")
+        return (float(a), float(b)) if a not in (None, "") and b not in (None, "") else None
     if p["a"].startswith("input_") or not p["b"].startswith("input_"):
-        return p["a"], p["b"], span("a"), span("b"), float(p["offset_s"])
-    return p["b"], p["a"], span("b"), span("a"), -float(p["offset_s"])
+        return p["a"], p["b"], span("core", "a"), span("core", "b"), float(p["offset_s"]), span("cover", "a"), span("cover", "b")
+    return p["b"], p["a"], span("core", "b"), span("core", "a"), -float(p["offset_s"]), span("cover", "b"), span("cover", "a")
+
+
+SHORT_CORE = 6.0  # seconds: a shorter core span is widened to the cover span for the evidence frames
+
+
+def evidence_times(path, core, cover):
+    """Three input times for the evidence image. Over a core span of SHORT_CORE seconds or more: its start, middle
+    and end. Over a shorter one, the cover span (where the clips match at all) is split in thirds, and in each the
+    frame with the most detail is taken, so three rows of empty sky give way to frames that show something."""
+    import cv2
+    a0, a1 = core
+    if a1 - a0 >= SHORT_CORE or not cover or cover[1] - cover[0] <= a1 - a0:
+        ts = sorted({a0 + 0.5, (a0 + a1) / 2, max(a0 + 0.5, a1 - 0.5)})
+        return ts + [ts[-1]] * (3 - len(ts))
+    c0, c1 = cover
+    out = []
+    for i in range(3):
+        lo, hi = c0 + (c1 - c0) * i / 3, c0 + (c1 - c0) * (i + 1) / 3
+        best = (-1.0, (lo + hi) / 2)
+        for t in [lo + 0.25 + 0.5 * j for j in range(max(1, int((hi - lo) / 0.5)))]:
+            f = frame_at(path, t)
+            if f is not None:
+                best = max(best, (float(cv2.Laplacian(cv2.cvtColor(f, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()), t))
+        out.append(best[1])
+    return out
 
 
 def input_left(src, p, out):
@@ -516,17 +543,16 @@ def core_evidence(pdir, p, out, model=None):
     import numpy as np
     if not p.get("core_a_start_s"):
         return False
-    ia, ib, core_in, core_cand, k = from_input(p)
-    a0, a1 = core_in
+    ia, ib, core_in, core_cand, k, cover_in, cover_cand = from_input(p)
     path = {f.stem: f for f in pdir.iterdir() if f.is_symlink()}
-    ts = sorted({a0 + 0.5, (a0 + a1) / 2, max(a0 + 0.5, a1 - 0.5)})
-    ts = ts + [ts[-1]] * (3 - len(ts))
+    ts = evidence_times(path[ia], core_in, cover_in)
+    widened = ts[-1] > core_in[1] or ts[0] < core_in[0]
     fas = [frame_at(path[ia], t) for t in ts]
     if any(f is None for f in fas):
         return False
     tbs = [t + k for t in ts]
     if model is not None and core_cand:
-        tbs = speed_times(model, fas, path[ib], ts, k, core_cand)
+        tbs = speed_times(model, fas, path[ib], ts, k, (cover_cand if widened and cover_cand else core_cand))
     fbs = [frame_at(path[ib], tb) for tb in tbs]
     if any(f is None for f in fbs):
         return False

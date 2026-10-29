@@ -497,3 +497,15 @@ def test_a_different_recording_does_not_come_out_looking_aligned(tmp_path):
     net = sscd.load(cli.MODEL)
     picked = sscd.embed(net, frames) @ sscd.embed(net, [trace.frame_at(b, t) for t in got]).T
     assert picked.diagonal().max() < 0.3  # choosing a speed cannot make a different recording match
+
+
+def test_a_short_core_spreads_the_frames_over_the_cover_and_prefers_detail(tmp_path):
+    import subprocess
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=10:d=9", "-f", "lavfi", "-i",
+                    "mandelbrot=s=320x240:rate=10", "-filter_complex", "[1:v]trim=duration=9,setpts=PTS-STARTPTS[m];"
+                    "[m][0:v]concat=n=2:v=1[v]", "-map", "[v]", "-pix_fmt", "yuv420p", str(v)], check=True)
+    # detail for 0-9 s, flat grey for 9-18 s; the core is 2 s of grey, the cover 0-18 s
+    ts = trace.evidence_times(v, (10.0, 12.0), (0.0, 18.0))
+    assert len(ts) == 3 and ts == sorted(ts) and ts[0] < 6 and ts[1] < 9  # not crowded into the 2 s of grey
+    assert trace.evidence_times(v, (1.0, 8.0), (0.0, 18.0)) == [1.5, 4.5, 7.5]  # a long core: start, middle, end
