@@ -297,7 +297,8 @@ def test_prerank_orders_youtube_results_and_keeps_other_posts_ahead(tmp_path):
     assert s.scores["https://www.youtube.com/watch?v=late"] == 0.9
 
 
-def test_google_sources_and_a_leak_counted_per_source(tmp_path):
+def test_google_sources_and_a_leak_counted_per_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(trace, "keyframes", lambda clip: [b"frame"])
     g = FakeGoogle(videos=[{"url": "https://www.youtube.com/watch?v=api", "posted_at": "2015-01-01T00:00:00Z"}],
                    pages=[{"url": "https://www.tiktok.com/@a/video/1", "title": "lava"},
                           {"url": "https://factcheck.afp.com/x", "title": "Fact check"}])
@@ -311,7 +312,8 @@ def test_google_sources_and_a_leak_counted_per_source(tmp_path):
     assert ("videos", None) not in g.calls
 
 
-def test_a_google_quota_error_stops_that_source_only(tmp_path):
+def test_a_google_quota_error_stops_that_source_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(trace, "keyframes", lambda clip: [b"frame"])
     said = []
     s = searcher(tmp_path, FakeSpark([]), google=FakeGoogle(stop="HTTP 403 quotaExceeded"), log=said.append)
     order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
@@ -353,3 +355,25 @@ def test_strength_of_the_shown_copy(tmp_path):
     tmp_path = tmp_path / "y"
     _, _, rows = go(tmp_path, ask_with({}), posted, {"youtube_old": "merged"})  # found by one family, no date
     assert next(r for r in rows if r["shown"] == 1)["strength"] == "single-source"
+
+
+def test_vision_requests_stop_at_the_daily_cap_and_are_counted_on_disk(tmp_path, monkeypatch):
+    monkeypatch.setattr(trace, "VISION_CAP", {"day": 2, "total": 300})
+    g = trace.Google("k", counter=tmp_path / "count.json")
+    monkeypatch.setattr(g, "_call", lambda url, body=None: {"responses": [{"webDetection": {"pagesWithMatchingImages": [
+        {"url": "https://www.tiktok.com/@a/video/1", "pageTitle": "<b>lava</b>"}]}}]})
+    assert g.pages([b"x"]) == [{"url": "https://www.tiktok.com/@a/video/1", "title": "lava"}]
+    g.pages([b"x"])
+    try:
+        g.pages([b"x"])
+    except trace.GoogleStop as e:
+        assert "cap" in str(e)
+    else:
+        raise AssertionError("no stop at the cap")
+    c = json.loads((tmp_path / "count.json").read_text())
+    assert c["total"] == 2 and c["images"] == 2
+    monkeypatch.setattr(trace, "keyframes", lambda clip: [b"frame"])
+    said = []
+    s = searcher(tmp_path / "s", FakeSpark([]), google=g, log=said.append)
+    s.candidates(str(tmp_path / "s" / "v.mp4"))  # over the cap: the run goes on without the keyframe source
+    assert any("keyframe source stopped" in m for m in said) and c["total"] == 2

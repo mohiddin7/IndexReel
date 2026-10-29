@@ -59,7 +59,10 @@ LEAKY = {"web", "keyframe"}  # sources that can read fact-check pages
 BY_DATE = False  # yt-dlp search sorted by upload date instead of relevance
 PRERANK = True  # order YouTube results by SSCD on YouTube's own preview frames
 DATE_FILTER = True  # read the platform date without downloading; skip posts dated on or after the claimed date
-KEYFRAMES = 3  # input frames sent to Cloud Vision web detection
+KEYFRAMES = 3  # input frames sent to Cloud Vision web detection, in one request
+VISION_CAP = {"day": 25, "total": 300}  # Vision requests; my console quota does not cover web detection
+VISION_COUNTER = Path.home() / ".cache" / "indexreel" / "vision_requests.json"
+KEY_NAME = "IndexReel_Trace_API_KEY_GCP"  # my Google API key, for the YouTube Data API and Cloud Vision only
 CORROBORATE_SEARCHES = 3
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
@@ -170,8 +173,20 @@ class Google:
     """YouTube Data API v3 search and Cloud Vision web detection, with my API key (eval/trace-v2.md). The key goes
     only into the request URL and is never logged."""
 
-    def __init__(self, key):
-        self.key = key
+    def __init__(self, key, counter=VISION_COUNTER):
+        self.key, self.counter = key, Path(counter)
+
+    def _count_vision(self, images):
+        """Count one Vision request on disk; GoogleStop once the day's or the total cap is reached."""
+        c = json.loads(self.counter.read_text()) if self.counter.exists() else {"total": 0, "images": 0, "days": {}}
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        if c["total"] >= VISION_CAP["total"] or c["days"].get(today, 0) >= VISION_CAP["day"]:
+            raise GoogleStop(f"Vision cap reached: {c['days'].get(today, 0)} requests today, {c['total']} in total")
+        c["total"] += 1
+        c["images"] += images
+        c["days"][today] = c["days"].get(today, 0) + 1
+        self.counter.parent.mkdir(parents=True, exist_ok=True)
+        self.counter.write_text(json.dumps(c, indent=1))
 
     def _call(self, url, body=None):
         import urllib.error
@@ -201,6 +216,7 @@ class Google:
     def pages(self, jpegs):
         """[{url, title}]: pages that carry images matching any of the frames."""
         import base64
+        self._count_vision(len(jpegs))
         d = self._call("https://vision.googleapis.com/v1/images:annotate", {"requests": [
             {"image": {"content": base64.b64encode(j).decode()}, "features": [{"type": "WEB_DETECTION", "maxResults": 50}]}
             for j in jpegs]})
@@ -473,7 +489,9 @@ class Searcher:
             lists["web"] = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
             self.leaks["web"] = leaky(hits)
         if "keyframe" in self.sources and self.google is not None:
-            pages = self._google("keyframe", ["vision", KEYFRAMES, verify.sha(clip)], lambda: self.google.pages(keyframes(clip)))
+            frames = keyframes(clip)
+            fh = hashlib.sha256(b"".join(hashlib.sha256(j).digest() for j in frames)).hexdigest()
+            pages = self._google("keyframe", ["vision", fh], lambda: self.google.pages(frames)) if frames else []
             lists["keyframe"] = [("keyframe", "", p["url"]) for p in pages if post_url(p.get("url"))]
             self.leaks["keyframe"] = leaky(pages)
             hits = hits + pages
@@ -671,9 +689,9 @@ def main(argv=None):
     ap.add_argument("--sscd-model", default=str(cli.MODEL))
     a = ap.parse_args(argv)
     cache = verify.Cache(a.cache / "trace")
-    key = os.environ.get("GOOGLE_API_KEY")
+    key = os.environ.get(KEY_NAME)
     if not key:
-        print("trace: no GOOGLE_API_KEY, so the YouTube Data API and keyframe sources are skipped")
+        print(f"trace: no {KEY_NAME}, so the YouTube Data API and keyframe sources are skipped")
     searcher = Searcher(SparkSearch(a.cache / "verify" / "clips"), cache, max_usd=a.max_usd,
                         google=Google(key) if key else None, thumbs=Thumbs(a.sscd_model, cache), meta=post_meta)
     rows = trace(a.run, searcher, a.sscd_model, claimed_dates(a.claimed_dates),

@@ -223,7 +223,7 @@ One JSON object per line, appended and never edited:
 
 - The claimed date of a recording is the earliest date in `--claimed-dates` (CSV `clip, claimed_date`) for its clips, else the earliest `posted_at` of its clips.
 - Search reads only what the recording's clip shows. No claim, caption or post text goes into it: a claim may be false in its event, place or date, and searching for it pulls in material about the claimed event (`eval/trace.md`, Amendment A). The claims stay in `claims.csv` and on the page, beside the earliest copy.
-- The YouTube Data API and keyframe sources need `GOOGLE_API_KEY`; without it, or after a quota or HTTP error, they are skipped for the run and the log says so.
+- The YouTube Data API and keyframe sources need my Google API key in `IndexReel_Trace_API_KEY_GCP`; without it, or after a quota or HTTP error, they are skipped for the run and the log says so. Vision requests are counted in `~/.cache/indexreel/vision_requests.json` and stop at 25 a day and 300 in total.
 - Spark answers, YouTube searches, Google answers, preview-frame scores and post dates are cached (`~/.cache/indexreel/trace`), so a rerun costs nothing. A Spark request is made only while enough of `--max-usd` is left for it; each candidate is verified only while $0.05 is left. The last lines are `trace: <n> candidates, <n> confirmed copies, <n> shown; spent $X now` and one `trace: <recording>: earliest confirmed copy <url> posted <time> on <platform>` per shown row.
 
 ## run.json
