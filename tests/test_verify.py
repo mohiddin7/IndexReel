@@ -266,3 +266,29 @@ def test_a_stream_without_a_final_event_is_retried_then_raised():
     with pytest.raises(RuntimeError):
         judge._ask([])
     assert len(calls) == 3
+
+
+def test_a_cheap_same_whose_sound_clearly_differs_is_re_asked(run, tmp_path):
+    cheap = {**{p: "yes" for p in A_FAMILY}, "b_cam1~b_cam2": "yes"}
+    judge = FakeJudge(cheap=cheap, full={"b_cam1~b_cam2": "no"}, full_default="yes")
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={"b_cam1~b_cam2": 0.002, "a_copy~a_orig": None, "a_orig~a_refilm": 0.4})
+    asked = {cluster.pair_id(a, b) for k, a, b in judge.calls if k == "pair"}
+    assert asked == {"b_cam1~b_cam2"}  # usable sound that does not match; no sound or matching sound stays as answered
+    assert rows(run)["b_cam1~b_cam2"]["verify_verdict"] == "different"
+
+
+def test_a_shared_footage_link_on_one_cheap_answer_is_re_asked(run, tmp_path):
+    with open(run / "pairs.csv", newline="") as f:
+        r = list(csv.DictReader(f))
+    for x in r:  # cover columns as the matcher writes them; the b_cam1~b_cam2 match covers only part of both clips
+        x["cover_a"] = x["cover_b"] = "0.3" if x["pair_id"] == "b_cam1~b_cam2" else "1.0"
+    with open(run / "pairs.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, list(r[0]))
+        w.writeheader()
+        w.writerows(r)
+    judge = FakeJudge(cheap={**{p: "yes" for p in A_FAMILY}, "b_cam1~b_cam2": "yes"}, full={"b_cam1~b_cam2": "no"})
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    # two clips only, so no conflict: the shared-footage rule alone sends the link to the full judge
+    assert {cluster.pair_id(a, b) for k, a, b in judge.calls if k == "pair"} == {"b_cam1~b_cam2"}
+    after = rows(run)["b_cam1~b_cam2"]
+    assert after["verify_verdict"] == "different" and cluster.effective_band(after) == "apart"

@@ -233,14 +233,19 @@ def chunks(pairs):
 
 def to_reask(clip_ids, rows, verdict):
     """Pairs to re-ask at full fidelity: in every would-be recording that holds a conflict (an apart pair inside it,
-    eval/run-format.md), each join edge and each pair the verifier itself made apart. A pair the matcher put apart
-    stays apart whatever the verifier says (cluster.effective_band), so it is never re-asked."""
-    eff = {r["pair_id"]: cluster.effective_band({"band": r["band"], "verify_verdict": verdict.get(r["pair_id"], "")}) for r in rows}
+    eval/run-format.md), each join edge and each pair the verifier itself made apart; and every link the clusters
+    would show as shared footage (eval/sameplace-result.md: one cheap `same` became a shared-footage claim between two
+    recordings). A pair the matcher put apart stays apart whatever the verifier says (cluster.effective_band), so it is
+    never re-asked."""
+    now = [dict(r, verify_verdict=verdict.get(r["pair_id"], "")) for r in rows]
+    eff = {r["pair_id"]: cluster.effective_band(r) for r in now}
     band = {r["pair_id"]: r["band"] for r in rows}
     out = set()
     for rec in cluster.recordings(clip_ids, [(r["pair_id"], r["a"], r["b"], eff[r["pair_id"]]) for r in rows]):
         if rec["conflicts"]:
             out |= set(rec["evidence_pairs"]) | {p for p in rec["conflicts"] if band[p] != "apart"}
+    recs = cluster.resolve_all(clip_ids, now)[0]
+    out |= {link for rec in recs for parts in rec.get("partial", {}).values() for s in parts for link in s["links"]}
     return out
 
 
@@ -292,8 +297,9 @@ def verify(run, judge, cache, sound=None, max_usd=5.0, workers=4):
                 detail[p] = (ent or {}).get("shared_detail")
     verdict = {p: VERDICT.get(a[0], "abstain") for p, a in answers.items()}
 
-    # the sound can only send a pair to the full judge; it never decides
-    reask = {p for p, s in sound.items() if s is not None and s >= AUDIO_MATCH and verdict.get(p, "same") != "same"}
+    # the sound can only send a pair to the full judge, never decide it: a match against a judge that did not say same,
+    # or usable sound on both sides that does not match against a cheap same (eval/sameplace-result.md)
+    reask = {p for p, s in sound.items() if s is not None and (s >= AUDIO_MATCH) != (verdict.get(p) == "same")}
     for _ in range(ROUNDS):
         reask = (reask | to_reask([c["id"] for c in clips], rows, verdict)) - set(full)
         reask &= set(answers)
