@@ -295,6 +295,7 @@ function claimsBox() {
   document.getElementById("claims").innerHTML = rows.map(claimCard).join("");
 }
 
+const DATE_CHECK = {editable: "this platform lets the uploader change the date", id_agrees: "the post's own id agrees with this date", id_differs: "the post's own id does not agree with this date"};
 const day = (t) => String(t || "").slice(0, 10);
 
 // one confirmed copy: where and when it was posted, link, and (with the caption) what its own post says
@@ -304,7 +305,8 @@ function copyLine(c, claimed) {
   const rel = c.earlier === "1" ? (c.shown ? "" : " (also posted before the claimed date)")
     : c.earlier === "0" ? " (not posted before the claimed date)" : "";
   const via = c.leak_copy ? ` <span class="muted">found only by a web search that also read fact-checking pages</span>` : "";
-  return `<div>${when}, ${c.account ? `@${esc(String(c.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${rel}${via}</div>`;
+  const check = DATE_CHECK[c.date_check] ? ` <span class="muted">${DATE_CHECK[c.date_check]}</span>` : "";
+  return `<div>${when}, ${c.account ? `@${esc(String(c.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${rel}${check}${via}</div>`;
 }
 
 function traceCard(id, t) {

@@ -797,3 +797,15 @@ def test_trace_corroborated_date_and_strength_never_reach_the_page_data(run):
     assert "2021-11-26" not in json.dumps(wall.state(run)["trace"]) and "strong" not in json.dumps(wall.state(run)["trace"])
     page = wall.PAGE.read_text()
     assert "corroborat" not in page
+
+
+def test_trace_date_check_notes_and_still_no_corroborated_date(run):
+    trace_run(run)
+    f = run / "trace.csv"
+    head, *rows = f.read_text().splitlines()
+    f.write_text("\n".join([head + ",date_check,corroborated_date"] + [r + (",editable,2021-11-26" if i == 0 else ",id_agrees,2021-11-26") for i, r in enumerate(rows)]) + "\n")
+    t = wall.read_trace(run)
+    assert [c["date_check"] for c in t["r1"]["copies"]] == ["editable", "id_agrees"]
+    assert "2021-11-26" not in json.dumps(t)
+    js = wall.PAGE.read_text()
+    assert "this platform lets the uploader change the date" in js and "the post's own id agrees with this date" in js and "corroborat" not in js
