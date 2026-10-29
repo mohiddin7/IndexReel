@@ -414,46 +414,32 @@ def frame_at(path, t):
 _NETS = {}
 
 
-def increasing_best(sims):
-    """Column indices j1 < j2 < ... (one per row) with the largest total similarity: a time-warp that keeps the
-    order of the footage, not a free pick per row. None when there are fewer columns than rows."""
+SPEED_MARGIN = 0.05  # a speed ratio replaces the matcher's offset only when its mean SSCD is this much higher
+
+
+def speed_times(model, frames, path, ts, k, span, step=0.5):
+    """Candidate times for input frames at times ts. The matcher's offset (t + k) is kept unless one speed ratio
+    (half or double speed, any start in `span`) gives a mean SSCD higher by SPEED_MARGIN: a copy slowed down or sped
+    up is shown at one consistent ratio, and no frame is moved on its own."""
     import numpy as np
-    n, m = sims.shape
-    if m < n:
-        return None
-    best, back = sims[0].astype(float).copy(), []
-    for i in range(1, n):
-        prev = np.full(m, -np.inf)
-        arg = np.zeros(m, int)
-        run, at = -np.inf, -1
-        for j in range(m):  # best of best[:j] for column j
-            prev[j], arg[j] = run, at
-            if best[j] > run:
-                run, at = best[j], j
-        best = prev + sims[i]
-        back.append(arg)
-    j = int(np.argmax(best))
-    out = [j]
-    for arg in reversed(back):
-        j = int(arg[j])
-        out.append(j)
-    return out[::-1]
-
-
-def best_match_times(model, frames, path, b0, b1, step=0.5):
-    """For the input frames, in order, times in [b0, b1] of `path`, strictly increasing, whose frames SSCD finds most
-    alike overall. The matcher aligns by one offset, which drifts when the input is slowed down or sped up; this
-    follows the footage instead, and keeping the order means rows cannot be picked freely."""
     from indexreel import sscd
+    base = [t + k for t in ts]
+    grid = [(t, frame_at(path, t)) for t in [span[0] + step * i for i in range(int((span[1] - span[0]) / step) + 1)]]
+    grid = [(t, f) for t, f in grid if f is not None]
+    if len(grid) < 2:
+        return base
     if model not in _NETS:
         _NETS[model] = sscd.load(model)
-    cand = [(t, frame_at(path, t)) for t in [b0 + step * i for i in range(int((b1 - b0) / step) + 1)]]
-    cand = [(t, f) for t, f in cand if f is not None]
-    if not cand:
-        return None
-    sims = sscd.embed(_NETS[model], frames) @ sscd.embed(_NETS[model], [f for _, f in cand]).T
-    idx = increasing_best(sims)
-    return [cand[i][0] for i in idx] if idx else None
+    gt = np.array([t for t, _ in grid])
+    sims = sscd.embed(_NETS[model], frames) @ sscd.embed(_NETS[model], [f for _, f in grid]).T
+    score = lambda times: float(np.mean([sims[i, int(np.abs(gt - t).argmin())] for i, t in enumerate(times)]))
+    best, best_times = score(base) + SPEED_MARGIN, base
+    for r in (0.5, 2.0):
+        for b0 in gt:
+            times = [b0 + r * (t - ts[0]) for t in ts]
+            if times[-1] <= span[1] + 1e-6 and score(times) > best:
+                best, best_times = score(times), [float(gt[int(np.abs(gt - t).argmin())]) for t in times]
+    return best_times
 
 
 def _inliers(a, b, orb, bf):
@@ -540,7 +526,7 @@ def core_evidence(pdir, p, out, model=None):
         return False
     tbs = [t + k for t in ts]
     if model is not None and core_cand:
-        tbs = best_match_times(model, fas, path[ib], *core_cand) or tbs
+        tbs = speed_times(model, fas, path[ib], ts, k, core_cand)
     fbs = [frame_at(path[ib], tb) for tb in tbs]
     if any(f is None for f in fbs):
         return False

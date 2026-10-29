@@ -414,44 +414,6 @@ def test_youtube_dates_come_from_the_data_api_when_it_is_on(tmp_path, monkeypatc
     assert metas == []  # no yt-dlp request for a date the API gave
 
 
-def test_evidence_follows_a_slowed_input(tmp_path):
-    import subprocess
-    import pytest
-    if not cli.MODEL.exists():
-        pytest.skip("SSCD model not present")
-    orig, slow = tmp_path / "o.mp4", tmp_path / "s.mp4"
-    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x240:rate=10", "-t", "20", "-pix_fmt",
-                    "yuv420p", str(orig)], check=True)
-    subprocess.run(["ffmpeg", "-v", "error", "-ss", "4", "-to", "12", "-i", str(orig), "-vf", "setpts=2*PTS", str(slow)], check=True)
-    frames = [trace.frame_at(slow, t) for t in (1.0, 8.0, 15.0)]
-    got = trace.best_match_times(cli.MODEL, frames, orig, 4.0, 12.0)
-    assert [abs(g - (4 + t / 2)) <= 0.5 for g, t in zip(got, (1.0, 8.0, 15.0))] == [True] * 3  # an offset alone would drift
-
-
-def test_evidence_rows_keep_the_order_of_the_footage():
-    import numpy as np
-    sims = np.array([[0.1, 0.2, 0.9, 0.1], [0.9, 0.1, 0.1, 0.1], [0.1, 0.1, 0.1, 0.8]])  # row 2 alone would go back
-    idx = trace.increasing_best(sims)
-    assert idx == sorted(set(idx)) and len(idx) == 3 and idx[-1] == 3
-    assert trace.increasing_best(np.ones((3, 2))) is None
-
-
-def test_a_different_recording_does_not_come_out_looking_aligned(tmp_path):
-    import subprocess
-    import pytest
-    from indexreel import sscd
-    if not cli.MODEL.exists():
-        pytest.skip("SSCD model not present")
-    a, b = tmp_path / "a.mp4", tmp_path / "b.mp4"
-    for src, out in (("mandelbrot=s=320x240:rate=10", a), ("life=s=320x240:rate=10:seed=7:mold=10", b)):
-        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", src, "-t", "12", "-pix_fmt", "yuv420p", str(out)], check=True)
-    frames = [trace.frame_at(a, t) for t in (1.0, 6.0, 11.0)]
-    ts = trace.best_match_times(cli.MODEL, frames, b, 0.0, 12.0)
-    assert ts == sorted(ts) and len(set(ts)) == 3
-    net = sscd.load(cli.MODEL)
-    picked = sscd.embed(net, frames) @ sscd.embed(net, [trace.frame_at(b, t) for t in ts]).T
-    assert picked.diagonal().max() < 0.3  # picking frames cannot make a different recording match
-
 
 def test_the_input_is_always_on_the_left_of_the_evidence(tmp_path, monkeypatch):
     import cv2
@@ -485,3 +447,53 @@ def test_evidence_orientation_comes_from_the_pixels_not_the_matchers_flag(tmp_pa
     zoomed = [cv2.resize(f[20:220, 30:290], (320, 240)) for f in frames]  # a cropped, rescaled copy of the same frames
     assert trace.mirrored([f[:, ::-1].copy() for f in frames], zoomed)  # the input is a mirror image of the candidate
     assert not trace.mirrored(frames, zoomed)
+
+
+def _clips(tmp_path, slow):
+    import subprocess
+    orig, inp = tmp_path / "o.mp4", tmp_path / "i.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x240:rate=10", "-t", "20", "-pix_fmt",
+                    "yuv420p", str(orig)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-ss", "4", "-to", "12", "-i", str(orig)] + (["-vf", "setpts=2*PTS"] if slow else [])
+                   + [str(inp)], check=True)
+    return orig, inp
+
+
+def test_a_same_speed_pair_keeps_the_matchers_offset(tmp_path):
+    import pytest
+    if not cli.MODEL.exists():
+        pytest.skip("SSCD model not present")
+    orig, inp = _clips(tmp_path, slow=False)
+    ts = [1.0, 4.0, 7.0]
+    got = trace.speed_times(cli.MODEL, [trace.frame_at(inp, t) for t in ts], orig, ts, 4.0, (4.0, 12.0))
+    assert got == [5.0, 8.0, 11.0]  # exactly t + offset: no frame is moved on its own
+
+
+def test_a_slowed_input_is_shown_at_one_speed_ratio(tmp_path):
+    import pytest
+    if not cli.MODEL.exists():
+        pytest.skip("SSCD model not present")
+    orig, inp = _clips(tmp_path, slow=True)
+    ts = [1.0, 8.0, 15.0]
+    got = trace.speed_times(cli.MODEL, [trace.frame_at(inp, t) for t in ts], orig, ts, 4.0, (4.0, 12.0))
+    assert all(abs(g - (4 + t / 2)) <= 0.5 for g, t in zip(got, ts))
+    ratio = (got[2] - got[0]) / (ts[2] - ts[0])
+    assert abs((got[1] - got[0]) / (ts[1] - ts[0]) - ratio) < 0.1  # one ratio for all rows
+
+
+def test_a_different_recording_does_not_come_out_looking_aligned(tmp_path):
+    import subprocess
+    import pytest
+    from indexreel import sscd
+    if not cli.MODEL.exists():
+        pytest.skip("SSCD model not present")
+    a, b = tmp_path / "a.mp4", tmp_path / "b.mp4"
+    for src, out in (("mandelbrot=s=320x240:rate=10", a), ("life=s=320x240:rate=10:seed=7:mold=10", b)):
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", src, "-t", "12", "-pix_fmt", "yuv420p", str(out)], check=True)
+    ts = [1.0, 6.0, 11.0]
+    frames = [trace.frame_at(a, t) for t in ts]
+    got = trace.speed_times(cli.MODEL, frames, b, ts, 0.0, (0.0, 12.0))
+    assert got == sorted(got) and len(set(got)) == 3
+    net = sscd.load(cli.MODEL)
+    picked = sscd.embed(net, frames) @ sscd.embed(net, [trace.frame_at(b, t) for t in got]).T
+    assert picked.diagonal().max() < 0.3  # choosing a speed cannot make a different recording match
