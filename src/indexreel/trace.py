@@ -530,6 +530,64 @@ def _corr(a, b):
     return float(g[0] @ g[1] / d) if d else 0.0
 
 
+MIN_INLIERS = 15  # ORB matches surviving RANSAC needed before the evidence image crops one side to the other's view
+CROP_BELOW = 0.8  # crop a side only when the other shows less than this share of it
+
+
+def _homography(a, b):
+    """The homography taking frame a to frame b from ORB matches that survive RANSAC, or None with fewer than
+    MIN_INLIERS of them."""
+    import cv2
+    import numpy as np
+    orb, bf = cv2.ORB_create(3000), cv2.BFMatcher(cv2.NORM_HAMMING)
+    ka, da = orb.detectAndCompute(cv2.cvtColor(a, cv2.COLOR_BGR2GRAY), None)
+    kb, db = orb.detectAndCompute(cv2.cvtColor(b, cv2.COLOR_BGR2GRAY), None)
+    if da is None or db is None or len(ka) < 8 or len(kb) < 8:
+        return None
+    good = [m for m, n in (x for x in bf.knnMatch(da, db, k=2) if len(x) == 2) if m.distance < 0.75 * n.distance]
+    if len(good) < MIN_INLIERS:
+        return None
+    H, mask = cv2.findHomography(np.float32([ka[m.queryIdx].pt for m in good]),
+                                 np.float32([kb[m.trainIdx].pt for m in good]), cv2.RANSAC, 5.0)
+    return H if H is not None and mask is not None and mask.sum() >= MIN_INLIERS else None
+
+
+def _view_box(H, src_shape, dst_shape):
+    """The box, in dst, that the whole src frame maps onto through H, clipped to dst; None if implausible."""
+    import cv2
+    import numpy as np
+    h, w = src_shape[:2]
+    pts = cv2.perspectiveTransform(np.float32([[0, 0], [w, 0], [w, h], [0, h]]).reshape(-1, 1, 2), H).reshape(-1, 2)
+    if not np.isfinite(pts).all() or cv2.contourArea(pts) <= 0:
+        return None
+    H2, W2 = dst_shape[:2]
+    x0, y0 = max(0, int(pts[:, 0].min())), max(0, int(pts[:, 1].min()))
+    x1, y1 = min(W2, int(np.ceil(pts[:, 0].max()))), min(H2, int(np.ceil(pts[:, 1].max())))
+    if x1 - x0 < W2 * 0.1 or y1 - y0 < H2 * 0.1:
+        return None
+    return x0, y0, x1, y1
+
+
+def matched_view(a, b):
+    """(input frame, candidate frame, which side was cropped: "input", "candidate" or ""). When one frame shows only
+    part of the other (a zoom or crop of the same picture), the wider one is cropped to that part, so both sides show
+    the same view at the same scale. Nothing is cropped without MIN_INLIERS geometric matches."""
+    import numpy as np
+    H = _homography(a, b)
+    if H is None or abs(np.linalg.det(H)) < 1e-9:
+        return a, b, ""
+    in_a, in_b = _view_box(np.linalg.inv(H), b.shape, a.shape), _view_box(H, a.shape, b.shape)  # b's view in a, a's in b
+    share = lambda box, shape: (box[2] - box[0]) * (box[3] - box[1]) / (shape[0] * shape[1]) if box else 1.0
+    sa, sb = share(in_a, a.shape), share(in_b, b.shape)
+    if sa < CROP_BELOW and sa <= sb:
+        x0, y0, x1, y1 = in_a
+        return a[y0:y1, x0:x1], b, "input"
+    if sb < CROP_BELOW:
+        x0, y0, x1, y1 = in_b
+        return a, b[y0:y1, x0:x1], "candidate"
+    return a, b, ""
+
+
 def mirrored(ins, cands):
     """True when the input frames match the candidate frames better mirrored than as they are. SSCD hardly tells a
     frame from its mirror image, so the evidence image decides with ORB matches that survive RANSAC, and with pixel
@@ -617,13 +675,17 @@ def core_evidence(pdir, p, out, model=None):
     fbs = [frame_at(path[ib], tb) for tb in tbs]
     if any(f is None for f in fbs):
         return False
-    if mirrored(fas, fbs):  # the matcher's `mirrored` flag comes from SSCD and is not reliable for this
+    flip = mirrored(fas, fbs)  # the matcher's `mirrored` flag comes from SSCD and is not reliable for this
+    if flip:
         fas = [f[:, ::-1].copy() for f in fas]
     rows = []
     for t, tb, fa, fb in zip(ts, tbs, fas, fbs):
+        fa, fb, crop = matched_view(trim_bars(fa), trim_bars(fb))  # the live picture only, then the same view
         left, right = cli.thumb(fa), cli.thumb(fb)
-        for img, name, at in ((left, "input", t), (right, "candidate", tb)):  # no video id: a blind reviewer could look it up
-            cv2.putText(img, f"{name} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        labels = ((left, f"input {t:.1f}s" + (" mirrored" if flip else "") + (" cropped" if crop == "input" else "")),
+                  (right, f"candidate {tb:.1f}s" + (" cropped" if crop == "candidate" else "")))
+        for img, text in labels:  # no video id: a blind reviewer could look it up
+            cv2.putText(img, text, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 75])

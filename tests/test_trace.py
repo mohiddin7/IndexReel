@@ -651,3 +651,29 @@ def test_data_api_searches_are_counted_per_pacific_day(tmp_path, monkeypatch):
         raise AssertionError("no stop at the daily search cap")
     days = json.loads((tmp_path / "s.json").read_text())
     assert list(days.values()) == [2] and trace.searches_left(tmp_path / "s.json") == 0
+
+
+def _mandel(tmp_path, src="mandelbrot=s=480x360:rate=5"):
+    import subprocess
+    v = tmp_path / f"{src[:4]}.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", src, "-t", "3", "-pix_fmt", "yuv420p", str(v)], check=True)
+    return trace.frame_at(v, 2.0)
+
+
+def test_the_wider_side_is_cropped_to_the_view_the_other_shows(tmp_path):
+    import cv2
+    wide = _mandel(tmp_path)
+    zoom = cv2.resize(wide[90:270, 120:360], (480, 360))  # the middle half, blown up
+    a, b, crop = trace.matched_view(wide, zoom)
+    assert crop == "input" and abs(a.shape[1] / a.shape[0] - 240 / 180) < 0.15 and a.shape[1] < 300
+    a, b, crop = trace.matched_view(zoom, wide)
+    assert crop == "candidate" and b.shape[1] < 300
+    a, b, crop = trace.matched_view(wide, wide)
+    assert crop == "" and a.shape == wide.shape  # the same view: nothing cropped
+
+
+def test_a_different_recording_gets_no_crop(tmp_path):
+    wide = _mandel(tmp_path)
+    other = _mandel(tmp_path, "life=s=480x360:rate=5:seed=3:mold=10")
+    a, b, crop = trace.matched_view(wide, other)
+    assert crop == "" and a.shape == wide.shape and b.shape == other.shape
