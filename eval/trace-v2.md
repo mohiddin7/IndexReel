@@ -170,3 +170,7 @@ If the test log shows YouTube asking for a sign-in, I stop the run, wait until a
 4. `python -m indexreel.claims data/trace_v2_test/run`, then I approve or reject the rows (for the page only).
 5. `indexreel trace data/trace_v2_test/run --claimed-dates data/trace_v2_test/in/claimed_dates.csv --max-usd 2 --cache data/trace_v2_test/cache`, with a new, empty cache.
 6. The two blind sheets and the score from `trace.csv` with `scripts/score_trace.py`. FAIL rows are kept. Bar 2a rests on one case (n1), so it says little either way.
+
+## Clarification B1 (Oct 29 2026, before any test input)
+
+Written after Amendment B. No test input had been fetched, made or run through any part of trace. `scripts/score_trace.py` at `f4b2dfe` told controls and test cases apart only by v1's id prefixes (c and t), so it would have scored none of v2's k controls or n test cases. Commit `31b7fd8` makes it count k as controls and n as test cases, as it counts c and t. Nothing else changes; trace itself stays at `f4b2dfe`.
