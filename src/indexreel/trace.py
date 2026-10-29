@@ -17,6 +17,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -45,10 +46,15 @@ QUERIES = 3  # YouTube queries
 PER_QUERY = 5
 SIZE = 360  # largest shorter side fetched
 MAX_S = 900  # longest candidate fetched, seconds
-GUARD = {"web": 0.10, "queries": 0.03}  # stop before a call when less than this is left of --max-usd
+COARSE_OVER = 90  # candidates longer than this (s) are first cut to the stretch a coarse pass flags
+COARSE_STEP = 4  # the coarse pass looks at one frame every this many seconds
+MARGIN = 15  # seconds kept on each side of that stretch; inside it the match runs at 1 frame per second as usual
+GUARD = {"web": 0.10, "queries": 0.03}
+VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is left, and keep it in reserve  # stop before a call when less than this is left of --max-usd
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
-           "clip", "band", "verify_verdict", "evidence", "confirmed", "earlier", "leak_exposed", "shown"]
+           "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
+           "earlier", "leak_exposed", "shown"]
 
 QUERY_PROMPT = """You are shown one video and the claims its post made about it. Answer with JSON only, no other text.
 Describe what the video shows in one sentence: the scene, place clues, any visible text, the kind of event. Then write {n} short search queries that would find other uploads of this same footage on YouTube, in the language that fits the place. The claims may be wrong (the footage may be older or from somewhere else), so write at least one query from what is visible alone, without the claimed place or date.
@@ -143,6 +149,66 @@ def run_low(url, out):
     return r.returncode, err
 
 
+def duration(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+                       capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def sparse_frames(path, step, tmp):
+    """One frame every `step` seconds, as BGR arrays."""
+    import cv2
+    for f in Path(tmp).glob("*.jpg"):
+        f.unlink()
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vf", f"fps=1/{step},scale=-2:256", "-q:v", "3",
+                    str(Path(tmp) / "%05d.jpg")], check=True)
+    return [cv2.imread(str(f)) for f in sorted(Path(tmp).glob("*.jpg"))]
+
+
+def narrow(model, input_path, cdir, work, rows, log=print):
+    """Cut each long candidate to the stretch most like the input (eval/trace.md, dev constant). The full file moves
+    to <work>/full/; the cut keeps the clip id, and the row says where in the post it starts and ends."""
+    import numpy as np
+    from indexreel import sscd
+    net, feats, tmp = None, None, work / "coarse"
+    (work / "full").mkdir(exist_ok=True)
+    tmp.mkdir(exist_ok=True)
+    cuts_file = work / "cuts.json"
+    cuts = json.loads(cuts_file.read_text()) if cuts_file.exists() else {}
+    for r in rows:
+        if r.get("clip") in cuts:  # cut on an earlier run
+            r.update(cuts[r["clip"]])
+            continue
+        f = next((p for p in sorted(cdir.glob(f"{r.get('clip')}.*")) if not p.name.endswith(".json")), None)
+        if not r.get("clip") or f is None:
+            continue
+        r["duration_s"] = d = round(duration(f), 3)
+        if d <= COARSE_OVER:
+            continue
+        t0 = time.time()
+        if net is None:
+            net = sscd.load(model)
+            plain, mirror = sscd.clip_features(net, input_path)
+            feats, dur_in = np.vstack([plain, mirror]), duration(input_path)
+        fr = sparse_frames(f, COARSE_STEP, tmp)
+        sims = (sscd.embed(net, fr) @ feats.T).max(1) if fr else np.zeros(1)
+        best = int(sims.argmax())
+        t = (best + 0.5) * COARSE_STEP
+        a, b = max(0.0, t - dur_in - MARGIN), min(d, t + dur_in + MARGIN)
+        full = work / "full" / f.name
+        f.rename(full)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-i", str(full), "-c:v",
+                        "libx264", "-crf", "23", "-c:a", "aac", str(cdir / (r["clip"] + ".mp4"))], check=True)
+        cuts[r["clip"]] = {"duration_s": d, "cut_start_s": round(a, 3), "cut_end_s": round(b, 3), "coarse": round(float(sims.max()), 4)}
+        cuts_file.write_text(json.dumps(cuts, indent=1))
+        r.update(cuts[r["clip"]])
+        log(f"trace: {r['clip']} {d:.0f} s cut to {a:.0f}-{b:.0f} s (coarse best {sims.max():.3f}) in "
+            f"{time.time() - t0:.1f} s")
+
+
 class Searcher:
     """The two sources with caching and a spending cap. spark and search are injectable for tests."""
 
@@ -206,7 +272,7 @@ def recording_claims(run, members, log=print):
 
 
 def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None, cache=None, fetcher=run_low,
-                    matcher=cli.match, verifier=verify.verify, log=print):
+                    matcher=cli.match, verifier=verify.verify, narrower=narrow, log=print):
     """trace.csv rows for one recording; candidates go to <run>/trace/<recording>/."""
     run = Path(run)
     by_id = {c["id"]: c for c in clips}
@@ -256,26 +322,34 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
 
     fetched = [r for r in rows if r.get("clip")]
     if fetched:
-        input_id = "input_" + clip["id"]
-        link = cdir / f"{input_id}{src.suffix.lower()}"
-        if not link.exists():
-            link.symlink_to(src.resolve())
+        link = Path(f"input_{clip['id']}{src.suffix.lower()}")
         for r in rows:  # candidates fetched but not kept (the input's own post) stay out of the match
             if r.get("fetch") == "same_post_as_input":
                 for f in cdir.glob(f"{got[r['url']]}.*"):
                     f.unlink()
-        out = work / "run"
-        matcher(cdir, out, model)
-        left = max(0.0, max_usd - searcher.spent)
-        spent, _ = verifier(out, judge, cache, max_usd=left) if judge else (0.0, 0.0)
-        searcher.spent += spent
-        pairs = {r["pair_id"]: r for r in csv.DictReader(open(out / "pairs.csv", newline=""))}
-        for r in fetched:
-            p = pairs.get(cluster.pair_id(input_id, r["clip"]))
+        narrower(model, src, cdir, work, fetched, log)
+        for r in fetched:  # the input against each candidate on its own: no money on candidate-to-candidate pairs
+            cand = next(p for p in sorted(cdir.glob(r["clip"] + ".*")) if not p.name.endswith(".json"))
+            pdir = work / "pairs" / r["clip"]
+            pdir.mkdir(parents=True, exist_ok=True)
+            for name, target in ((link.name, src.resolve()), (cand.name, cand.resolve())):
+                if not (pdir / name).is_symlink():
+                    (pdir / name).symlink_to(target)
+            out = pdir / "run"
+            t0 = time.time()
+            matcher(pdir, out, model)
+            left = max_usd - searcher.spent
+            if judge and left >= VERIFY_GUARD:
+                spent, _ = verifier(out, judge, cache, max_usd=left - VERIFY_GUARD, workers=1)
+                searcher.spent += spent
+            elif judge:
+                log(f"trace: {r['clip']} not verified, ${searcher.spent:.4f} spent of --max-usd {max_usd}")
+            p = next(iter(csv.DictReader(open(out / "pairs.csv", newline=""))), None)
+            log(f"trace: {r['clip']} matched in {time.time() - t0:.0f} s")
             if p is None:
                 continue
             r.update({"band": cluster.effective_band(p), "verify_verdict": p.get("verify_verdict", ""),
-                      "evidence": f"trace/{rec['id']}/run/{p['evidence']}" if p.get("evidence") else ""})
+                      "evidence": f"trace/{rec['id']}/pairs/{r['clip']}/run/{p['evidence']}" if p.get("evidence") else ""})
             r["confirmed"] = int(r["band"] == "merged")
             dated = r.get("platform") in PLATFORMS and day(r.get("posted_at"))
             r["earlier"] = (int(day(r["posted_at"]) < before) if before else "") if dated else ""

@@ -105,7 +105,7 @@ def test_earliest_confirmed_earlier_copy_is_shown_and_later_or_undated_ones_are_
     assert by["https://x.com/u/status/9"]["platform"] == "x" and by["https://x.com/u/status/9"]["earlier"] == 1
     assert by["https://www.youtube.com/watch?v=late"]["earlier"] == 0  # a later upload is never shown
     assert [r["url"] for r in rows if r["shown"] == 1] == ["https://x.com/u/status/9"]
-    assert by["https://x.com/u/status/9"]["evidence"].startswith("trace/r1/run/frames/")
+    assert by["https://x.com/u/status/9"]["evidence"].startswith("trace/r1/pairs/twitter_9/run/frames/")
     out = list(csv.DictReader(open(run / "trace.csv", newline="")))
     assert list(out[0]) == trace.COLUMNS and len(out) == len(rows)
 
@@ -167,3 +167,25 @@ def test_no_request_beyond_the_budget(tmp_path):
     spark = FakeSpark(["https://x.com/u/status/1"])
     _, s, rows = go(tmp_path, spark, {}, {}, max_usd=0.05)
     assert spark.calls == ["queries"] and s.spent <= 0.05  # the web request's guard did not fit
+
+
+def test_a_long_candidate_is_cut_around_the_stretch_that_matches_the_input(tmp_path):
+    import subprocess
+    import pytest
+    if not cli.MODEL.exists():
+        pytest.skip("SSCD model not present")
+    (tmp_path / "c").mkdir()
+    (tmp_path / "w").mkdir()
+    long, clip = tmp_path / "c" / "youtube_long.mp4", tmp_path / "input.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x240:rate=5", "-t", "120", "-pix_fmt",
+                    "yuv420p", str(long)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-ss", "60", "-to", "70", "-i", str(long), "-vf", "hflip", str(clip)], check=True)
+    rows = [{"clip": "youtube_long"}, {"clip": ""}]
+    trace.narrow(cli.MODEL, clip, tmp_path / "c", tmp_path / "w", rows, log=lambda *_: None)
+    r = rows[0]
+    assert r["duration_s"] == 120.0 and r["cut_start_s"] <= 60 and r["cut_end_s"] >= 70
+    assert r["cut_end_s"] - r["cut_start_s"] <= 2 * 10 + 2 * trace.MARGIN  # the stretch may start anywhere in the input
+    assert (tmp_path / "w" / "full" / "youtube_long.mp4").exists() and trace.duration(long) < 60
+    rows2 = [{"clip": "youtube_long"}]
+    trace.narrow(cli.MODEL, clip, tmp_path / "c", tmp_path / "w", rows2, log=lambda *_: None)  # a rerun keeps the cut
+    assert rows2[0]["cut_start_s"] == r["cut_start_s"] and trace.duration(long) < 60
