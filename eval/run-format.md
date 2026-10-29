@@ -211,6 +211,8 @@ One JSON object per line, appended and never edited:
 | `earlier` | 1 when the platform dates the post on a UTC day before the claimed date, 0 when not; empty when the post has no platform date (yt-dlp's generic extractor or no date) or no claimed date is known |
 | `leak_exposed` | 1 when any web search hit for this recording was on a fact-checking site or web archive, or had a fact-check title (`trace/<recording>/search_hits.json` lists them) |
 | `shown` | 1 on the earliest confirmed copy with `earlier` 1; at most one row per recording |
+| `claimed_date` | the recording's claimed date (see below), the same on every row of a recording; empty when none is known |
+| `leak_copy` | 1 when this post was found only by web search and that recording's web search also read a fact-checking page (`leak_exposed`): the copy fails leak rule 2 of `eval/trace.md`. Trace does not know which page led to a post, so this does not say the post was found through a fact-check |
 
 - The claimed date of a recording is the earliest date in `--claimed-dates` (CSV `clip, claimed_date`) for its clips, else the earliest `posted_at` of its clips.
 - Search reads only what the recording's clip shows. No claim, caption or post text goes into it: a claim may be false in its event, place or date, and searching for it pulls in material about the claimed event (`eval/trace.md`, Amendment A). The claims stay in `claims.csv` and on the page, beside the earliest copy.

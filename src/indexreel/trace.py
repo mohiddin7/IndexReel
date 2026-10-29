@@ -53,7 +53,7 @@ VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
-           "earlier", "leak_exposed", "shown"]
+           "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy"]
 
 QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
 The footage may be older than it seems or from somewhere else, so work only from what the video shows.
@@ -395,6 +395,9 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
         r["shown"] = int(bool(shown) and r is shown[0])
+        r["claimed_date"] = before or ""
+        # found only by a web search that also read fact-check pages: fails leak rule 2 of eval/trace.md
+        r["leak_copy"] = int(bool(leaks) and set(r["source"].split("+")) <= {"web"})
     return rows
 
 

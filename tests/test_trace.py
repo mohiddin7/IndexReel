@@ -152,6 +152,8 @@ def test_leak_exposed_when_search_read_a_fact_check(tmp_path):
     hits = [{"title": "Old video falsely shared as Semeru eruption", "url": "https://example.com/news"}]
     run, _, rows = go(tmp_path, FakeSpark([], hits=hits), {}, {})
     assert {r["leak_exposed"] for r in rows} == {1}
+    assert {r["source"]: r["leak_copy"] for r in rows} == {"youtube": 0}  # only YouTube candidates here: none fails
+    assert {r["claimed_date"] for r in rows} == {"2021-12-05"}
     assert json.loads((run / "trace" / "r1" / "search_hits.json").read_text())["leak_exposed"] == hits
 
 
@@ -239,3 +241,12 @@ def test_a_post_found_by_several_sources_lists_them_all(tmp_path):
     order, _, _ = s.candidates(str(tmp_path / "v.mp4"))
     assert order[0] == ("web+youtube", "lava river at night", "https://www.youtube.com/watch?v=old")
     assert [u for _, _, u in order].count("https://www.youtube.com/watch?v=old") == 1
+
+
+def test_a_copy_found_only_by_a_leaky_web_search_is_marked(tmp_path):
+    hits = [{"title": "Fact check: old lava video", "url": "https://example.com/a"}]
+    _, _, rows = go(tmp_path, FakeSpark(["https://x.com/u/status/9", "https://www.youtube.com/watch?v=old"], hits=hits), {}, {})
+    by = {r["url"]: r for r in rows}
+    assert by["https://x.com/u/status/9"]["leak_copy"] == 1
+    assert set(by["https://www.youtube.com/watch?v=old"]["source"].split("+")) == {"web", "youtube"}
+    assert by["https://www.youtube.com/watch?v=old"]["leak_copy"] == 0  # YouTube search found it too
