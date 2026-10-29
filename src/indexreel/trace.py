@@ -278,12 +278,30 @@ def post_meta(url):
     return {"day": dayv, "duration": float(d) if d not in ("", "NA") else None}
 
 
+TRACKING = {"si", "t", "s", "ref", "feature", "is_from_webapp", "web_id", "lang", "is_copy_url", "mibextid", "igsh", "igshid"}
+
+
 def youtube_id(url):
+    """The video id of a YouTube URL, else None."""
     p = urlsplit(url)
-    if (p.hostname or "").endswith("youtu.be"):
+    host = (p.hostname or "").lower()
+    if host == "youtu.be":
         return p.path.strip("/") or None
-    m = re.search(r"(?:v=|/shorts/|/live/)([A-Za-z0-9_-]+)", url)
+    if host not in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+        return None
+    m = re.search(r"(?:[?&]v=|/shorts/|/live/)([A-Za-z0-9_-]+)", url)
     return m.group(1) if m else None
+
+
+def canonical(url):
+    """One URL per post: a YouTube video as watch?v=<id>; other URLs without tracking parameters."""
+    from urllib.parse import parse_qsl, urlencode
+    vid = youtube_id(url)
+    if vid:
+        return f"https://www.youtube.com/watch?v={vid}"
+    p = urlsplit(url)
+    q = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if k not in TRACKING and not k.startswith("utm_")]
+    return p._replace(query=urlencode(q), fragment="").geturl()
 
 
 class Thumbs:
@@ -637,23 +655,26 @@ class Searcher:
                 key = ["ytsearch", PER_QUERY, q] + ([h] if h else []) + (["sp=CAI"] if BY_DATE and not h else [])
                 for it in self._cached(key, lambda: self.search(q, PER_QUERY, h)):
                     it = it if isinstance(it, dict) else {"url": it}
-                    lists[s].append((s, q, it["url"]))
-                    info.setdefault(it["url"], {})["duration"] = it.get("duration")
+                    u = canonical(it["url"])
+                    lists[s].append((s, q, u))
+                    info.setdefault(u, {})["duration"] = it.get("duration")
             if "ytapi" in self.sources and before:
                 for it in self._google("ytapi", ["ytapi", PER_QUERY, q, before], lambda: self.google.videos(q, before, PER_QUERY)):
-                    lists["ytapi"].append(("ytapi", q, it["url"]))
-                    info.setdefault(it["url"], {})["day"] = day(it.get("posted_at"))
+                    u = canonical(it["url"])
+                    lists["ytapi"].append(("ytapi", q, u))
+                    info.setdefault(u, {})["day"] = day(it.get("posted_at"))
         hits = []
         if "web" in self.sources:
             text = SEARCH_PROMPT.format(n=SEARCHES, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
             ans, hits = self._spark("web", clip, text, True)
-            lists["web"] = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
+            lists["web"] = [("web", "", canonical(str((p or {}).get("url") or ""))) for p in ((ans or {}).get("posts") or [])
+                            if isinstance(p, dict)]
             self.leaks["web"] = leaky(hits)
         if "keyframe" in self.sources and self.google is not None:
             frames = keyframes(clip)
             fh = hashlib.sha256(b"".join(hashlib.sha256(j).digest() for j in frames)).hexdigest()
             pages = self._google("keyframe", ["vision", fh], lambda: self.google.pages(frames)) if frames else []
-            lists["keyframe"] = [("keyframe", "", p["url"]) for p in pages if post_url(p.get("url"))]
+            lists["keyframe"] = [("keyframe", "", canonical(p["url"])) for p in pages if post_url(p.get("url"))]
             self.leaks["keyframe"] = leaky(pages)
             hits = hits + pages
         order, at = [], {}

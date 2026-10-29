@@ -557,3 +557,17 @@ def test_every_search_runs_before_any_matching_and_verify_keeps_a_reserve(tmp_pa
     first_match = events.index("match")
     assert events.count("search") == 4 and "search" not in events[first_match:]  # 2 recordings x (queries, web)
     assert len(verified) == 1  # with two recordings to go, the reserve left room to verify only once
+
+
+def test_one_video_is_one_candidate_whatever_its_url(tmp_path):
+    YT["dupes"] = ["https://www.youtube.com/shorts/abcdefghijk", "https://youtu.be/abcdefghijk?si=x1"]
+    try:
+        s = searcher(tmp_path, FakeSpark(["https://www.youtube.com/watch?v=abcdefghijk&t=12s", "https://x.com/u/status/9?s=20"]),
+                     sources=("web", "youtube"))
+        s.spark.queries = ["dupes"]
+        order, _, _ = s.candidates(str(tmp_path / "v.mp4"))
+        assert [(src, u) for src, _, u in order] == [("web+youtube", "https://www.youtube.com/watch?v=abcdefghijk"),
+                                                     ("web", "https://x.com/u/status/9")]
+        assert trace.canonical("https://www.facebook.com/watch/?v=277009859582647&ref=x") == "https://www.facebook.com/watch/?v=277009859582647"
+    finally:
+        YT.pop("dupes")
