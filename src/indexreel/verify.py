@@ -143,22 +143,26 @@ class SparkJudge:
         return self.ids[key]
 
     def _ask(self, content, **kw):
-        for attempt in range(3):  # transport failures only (no response.completed); an answer is never re-asked
+        for attempt in range(3):  # transport failures only (no final event); an answer is never re-asked
             try:
-                text = []
+                text, final = [], None
                 with self.cli.responses.stream(model=MODEL, input=[{"type": "message", "role": "user", "content": content}], **kw) as s:
                     for ev in s:
                         if ev.type == "response.output_text.delta":
                             text.append(ev.delta)
-                    u = s.get_final_response().usage
+                        elif ev.type in ("response.completed", "response.incomplete", "response.failed"):
+                            final = ev.response
+                if final is None:
+                    raise RuntimeError("the stream ended without a final event")
                 break
             except RuntimeError:
                 if attempt == 2:
                     raise
-        ans = parse("".join(text))
-        cached = u.input_tokens_details.cached_tokens or 0
-        cost = ((u.input_tokens - cached) * PRICE["input"] + cached * PRICE["cached"] + u.output_tokens * PRICE["output"]) / 1e6
-        return ans, cost
+        u = final.usage
+        cached = (u.input_tokens_details.cached_tokens or 0) if u and u.input_tokens_details else 0
+        cost = ((u.input_tokens - cached) * PRICE["input"] + cached * PRICE["cached"] + u.output_tokens * PRICE["output"]) / 1e6 if u else 0.0
+        # an answer cut off at max_output_tokens, or failed, is no answer for this order: it can never count as same
+        return (parse("".join(text)) if final.status == "completed" else None), cost
 
     def group(self, anchor, candidates):
         content = [{"type": "input_text", "text": GROUP_PROMPT + "\nVideo A:"}, {"type": "input_file", "file_id": self._file(anchor, 180)}]

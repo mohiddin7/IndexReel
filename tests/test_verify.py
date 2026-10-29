@@ -212,3 +212,57 @@ def test_reason_joins_the_sound_note_without_doubled_punctuation(run, tmp_path):
 
     verify.verify(run, Sentence(cheap={"a_copy~a_refilm": "yes"}), verify.Cache(tmp_path / "cache"), sound={})
     assert rows(run)["a_copy~a_refilm"]["verify_reason"] == "The same tree is visible; sound not usable"
+
+
+def test_an_incomplete_answer_is_no_answer_and_never_same(run, tmp_path):
+    from types import SimpleNamespace as NS
+
+    def stream_of(status):
+        usage = NS(input_tokens=1000, output_tokens=4000, input_tokens_details=NS(cached_tokens=0))
+        events = [NS(type="response.output_text.delta", delta='{"same_footage": "yes"}'),
+                  NS(type=f"response.{status}", response=NS(status=status, usage=usage))]
+
+        class Stream:
+            def __enter__(self):
+                return iter(events)
+
+            def __exit__(self, *a):
+                return False
+        return Stream()
+
+    judge = object.__new__(verify.SparkJudge)
+    judge.cli = NS(responses=NS(stream=lambda **kw: stream_of("incomplete")))
+    ans, cost = judge._ask([])
+    assert ans is None and cost == pytest.approx((1000 * 1.25 + 4000 * 4.25) / 1e6)
+    judge.cli = NS(responses=NS(stream=lambda **kw: stream_of("completed")))
+    assert judge._ask([])[0] == {"same_footage": "yes"}
+
+    class CutOff(FakeJudge):  # every full-fidelity answer ends incomplete, as the API returns it: no answer
+        def pair(self, a, b):
+            super().pair(a, b)
+            return None, 0.02
+
+    judge = CutOff(cheap={"a_copy~a_orig": "yes", "a_orig~a_refilm": "yes"}, full_default="yes")
+    verify.verify(run, judge, verify.Cache(tmp_path / "cache"), sound={})
+    r = rows(run)["a_copy~a_refilm"]  # cheap "no", a conflict, re-asked, both orders cut off
+    assert any(c[0] == "pair" for c in judge.calls) and r["verify_verdict"] == "abstain"
+    assert cluster.effective_band(r) != "merged"
+
+
+def test_a_stream_without_a_final_event_is_retried_then_raised():
+    from types import SimpleNamespace as NS
+    calls = []
+
+    class Stream:
+        def __enter__(self):
+            calls.append(1)
+            return iter([NS(type="response.output_text.delta", delta="{")])
+
+        def __exit__(self, *a):
+            return False
+
+    judge = object.__new__(verify.SparkJudge)
+    judge.cli = NS(responses=NS(stream=lambda **kw: Stream()))
+    with pytest.raises(RuntimeError):
+        judge._ask([])
+    assert len(calls) == 3
