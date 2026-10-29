@@ -1,4 +1,5 @@
-"""Same view, different recording: run once. Protocol: eval/sameview.md (frozen before any clip existed).
+"""Same view, different recording: run once. Protocol: eval/sameview.md (frozen before any clip existed; Amendment 1:
+run from a checkout of 66a179b with PYTHONPATH=<checkout>/src).
 
   PYTHONPATH=src python scripts/sameview.py prepare     every file in the manifest, flat, into data/sameview_in
   PYTHONPATH=src python -m indexreel match data/sameview_in --out data/sameview_run
@@ -66,6 +67,8 @@ def score(run=RUN, manifest_path=DATA / "manifest.csv"):
         if kind[r["pair_id"]] != "cross_view":
             out.append(f"  {kind[r['pair_id']]} {r['pair_id']} {r['aligned']} {r['score']} {r['band']} {r['verify_verdict'] or '-'} "
                        f"{r['verify_confidence'] or '-'} {eff[r['pair_id']]} | {r['verify_reason']}")
+    shared = sorted({l for r in recs for parts in r.get("partial", {}).values() for s in parts for l in s["links"]})
+    out.append(f"links shown as shared footage (partial, not joining recordings): {[(p, kind[p]) for p in shared]}")
     cv = [r for r in rows if kind[r["pair_id"]] == "cross_view"]
     out.append(f"cross-view pairs by band: {dict(Counter(r['band'] for r in cv))}; highest aligned {max((float(r['aligned']) for r in cv), default=float('nan')):.3f}")
     out.append(f"verify cost ${sum(float(r['verify_cost_usd'] or 0) for r in rows):.4f} at list prices")
