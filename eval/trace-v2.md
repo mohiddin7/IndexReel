@@ -115,3 +115,58 @@ As in `eval/trace.md`, plus: the number of candidates from each source and famil
 - Search results change from day to day, so a rerun would give different candidates.
 - "Same recording" is one blind reviewer's judgement.
 - A post time says when a clip was posted, not when it was filmed.
+
+## Amendment B (Oct 29 2026, after dev, before any test input)
+
+Written after the dev measurements below. No test input has been fetched or made, and trace has not been run on any test case or control. Before this protocol was written I read the fact-check pages of the new cases, test cases included, to choose them. Nothing found on those pages was used to build or tune trace.
+
+### Retrieval recall on dev
+
+Recall is whether a known earlier upload of the recording is among the 10 candidates trace would fetch ("fetched"), or anywhere in what the sources returned ("pool"). Known uploads are the ones named by the fact-checks plus the earlier copies v1 confirmed. 18 dev cases have one; t9's original is an X post whose id I do not have, so it is left out of this count. Nothing is downloaded for this measurement (`scripts/trace_recall.py`).
+
+| sources and settings | fetched | pool |
+|---|---|---|
+| v1 as frozen (web, channel, yt-dlp at 5 results per query) | 5 | 6 |
+| web, channel, yt-dlp at 50 per query, no pre-rank | 5 | 8 |
+| the same with the preview-frame pre-rank | 8 | 8 |
+| yt-dlp alone at 50 per query, pre-rank and date filter, by relevance | 7 | 7 |
+| the same, sorted by upload date | 7 | 8 |
+| YouTube Data API alone, before the claimed date, 50 per query, no pre-rank | 4 | 8 |
+| keyframe search alone (Cloud Vision web detection, 3 frames) | 0 | 0 |
+| **web, channel, Data API and yt-dlp at 50 per query, with pre-rank and date filter** | **9** | **9** |
+
+- **Keyframe search is left out.** On 10 of the 18 dev inputs Cloud Vision returned no matching page at all; on the others it returned unrelated pages (generic space imagery, dictionaries, shops). It reached no known earlier upload. It used 18 requests (54 images). The code path stays, switched off.
+- **Sorting by upload date is left out.** It reached a different set of the same size, and no known upload that the combination misses. (yt-dlp no longer has its date-sorted search prefix, so this was measured through YouTube's own sort parameter.)
+- **The Data API matters for one case** that no other source reached (e1, the O'Hare skid), and it raised two others (t1, t2) near the top.
+
+### Full dev runs
+
+`indexreel trace` with the frozen settings, on two runs: A (d1, d2, d7, d10, e1, e2, e3) and B (v1's t1-t15 and controls c1-c4).
+
+- **No wrong statement.** No control showed an earlier copy (c4 had 42 later copies, all skipped before download by the date filter). I looked at the evidence image of every copy shown: each is plainly the same recording as the input, including mirrored, slowed and cropped inputs. This is my own check; the test's blind check is done by a separate reviewer.
+- **Shown, passing the leak rule: 12 of the 19 dev cases that have an input (controls apart):** d1, d2, e1, e2, t1, t2, t3, t7, t9, t11, t14 and t15. t13 was shown too, but only web search found it on a leak-exposed recording, so it fails leak rule 2. Of these, v1 found t7 and t11 in its test and d1 and d2 in its dev runs.
+- **Not found:** d7 and d10 (the most recycled clips; no earlier upload was ever a candidate), e3 (a Facebook original), t4, t5 and t10.
+- **YouTube blocked downloads.** Partway through run B, YouTube began answering "Sign in to confirm you're not a bot" to every request from this machine, and the last recordings fetched little or nothing. No cookies or credentials are used, so trace was changed instead (commit `cf988bc`): YouTube post dates and lengths now come from the Data API's `videos.list` rather than from one yt-dlp request per video, and yt-dlp waits 2 s between requests. The block lifted after about 20 minutes, and run B was run again with that code and the same cache. That rerun only retried the failed fetches; it met no further sign-in request.
+- **Evidence for changed speed.** The evidence image showed t2's slowed input beside candidate frames taken at the matcher's single offset, so the moments drifted apart. Now each of the three input frames is shown beside a candidate frame from inside the core span, chosen by SSCD with one condition: the candidate times must keep the footage's order, each row later than the row above. This is a time-warp, not a free pick per row, so frames cannot be cherry-picked to make two different recordings look alike. Every row prints both times, so the reviewer can see a consistent speed ratio. A test checks that a different recording does not come out looking aligned (commits `df77d87` and `f4b2dfe`). I checked all 13 shown images again with it.
+- Cost: run A $0.56 (its $0.60 cap stopped verification and corroboration on its last candidates), run B $0.80 and its rerun $0.49. Dev in total, with the recall measurements: about $2.02.
+
+### Frozen code and settings
+
+- Code at commit `f4b2dfe`: `src/indexreel/trace.py`, `scripts/trace_inputs.py` and `scripts/score_trace.py`, with the matcher and verifier unchanged from Amendment A of `eval/trace.md`.
+- Sources: web (Spark web search, as in v1), channel and yt-dlp search, and the YouTube Data API with `publishedBefore` the claimed date. 3 queries, written from the clip only; 50 results per query in each YouTube source.
+- Before download: a YouTube result longer than 30 minutes or dated by the platform on or after the claimed date is skipped; YouTube results are ordered by SSCD on YouTube's own preview frames (the best of four frames against the input's frames, plain and mirrored); posts not on YouTube keep their turn ahead of them. At most 10 candidates are fetched.
+- Matching, verification, coarse pass and evidence image: unchanged.
+- Corroboration: one Spark web search per shown copy, at most 3 searches.
+
+### If YouTube blocks downloads during the test
+
+If the test log shows YouTube asking for a sign-in, I stop the run, wait until a single probe request succeeds, and run the same command again with the same cache. Searches, Spark answers and verify answers are cached, so the rerun only retries the fetches that failed and matches what they bring; it is the same run resumed, not a new one. Between a stop and its resume no code, setting or cache entry changes: same commit, same command. Nobody looks at or scores partial test output before the run has completed. Each stop and resume is reported in the result with its time. No cookies, accounts, proxies or VPNs are used.
+
+### Test commands, in order, once
+
+1. Write `data/trace_v2_test/manifest.csv` for n1-n11 and k1-k4, with the segment of each kind (b) source chosen from the fact-check's description.
+2. `python scripts/trace_inputs.py data/trace_v2_test/manifest.csv --out data/trace_v2_test/in`
+3. `indexreel match data/trace_v2_test/in --out data/trace_v2_test/run`
+4. `python -m indexreel.claims data/trace_v2_test/run`, then I approve or reject the rows (for the page only).
+5. `indexreel trace data/trace_v2_test/run --claimed-dates data/trace_v2_test/in/claimed_dates.csv --max-usd 2 --cache data/trace_v2_test/cache`, with a new, empty cache.
+6. The two blind sheets and the score from `trace.csv` with `scripts/score_trace.py`. FAIL rows are kept. Bar 2a rests on one case (n1), so it says little either way.
