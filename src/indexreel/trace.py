@@ -66,6 +66,10 @@ DATE_FILTER = True  # read the platform date without downloading; skip posts dat
 KEYFRAMES = 3  # input frames sent to Cloud Vision web detection, in one request
 VISION_CAP = {"day": 25, "total": 300}  # Vision requests; my console quota does not cover web detection
 VISION_COUNTER = Path.home() / ".cache" / "indexreel" / "vision_requests.json"
+# search.list has its own bucket of 100 calls a day, reset at midnight Pacific time; videos.list costs 1 unit of
+# 10,000 (developers.google.com/youtube/v3/determine_quota_cost, read Oct 29 2026). Every call counts, even a failed one.
+SEARCH_CAP = 100
+SEARCH_COUNTER = Path.home() / ".cache" / "indexreel" / "ytapi_searches.json"
 KEY_NAME = "IndexReel_Trace_API_KEY_GCP"  # my Google API key, for the YouTube Data API and Cloud Vision only
 CORROBORATE_SEARCHES = 3
 PACE_S = 2  # seconds yt-dlp waits between requests to a platform: YouTube asks for a sign-in after a fast burst
@@ -171,6 +175,18 @@ def ytsearch(query, n=PER_QUERY, handle=None):
     return out if out or r.returncode == 0 else None  # None: the search failed, so it is not cached
 
 
+def pacific_day():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+
+
+def searches_left(counter=SEARCH_COUNTER):
+    """Data API search.list calls left today (Pacific time), by my own count."""
+    days = json.loads(Path(counter).read_text()) if Path(counter).exists() else {}
+    return max(0, SEARCH_CAP - days.get(pacific_day(), 0))
+
+
 class GoogleStop(Exception):
     """A Google source cannot go on for this run: no key, quota or rate limit, or another HTTP error."""
 
@@ -179,8 +195,18 @@ class Google:
     """YouTube Data API v3 search and Cloud Vision web detection, with my API key (eval/trace-v2.md). The key goes
     only into the request URL and is never logged."""
 
-    def __init__(self, key, counter=VISION_COUNTER):
-        self.key, self.counter = key, Path(counter)
+    def __init__(self, key, counter=VISION_COUNTER, search_counter=SEARCH_COUNTER):
+        self.key, self.counter, self.search_counter = key, Path(counter), Path(search_counter)
+
+    def _count_search(self):
+        """Count one search.list call on disk; GoogleStop once today's bucket is used up."""
+        days = json.loads(self.search_counter.read_text()) if self.search_counter.exists() else {}
+        today = pacific_day()
+        if days.get(today, 0) >= SEARCH_CAP:
+            raise GoogleStop(f"search.list cap reached: {days[today]} calls today (Pacific)")
+        days[today] = days.get(today, 0) + 1
+        self.search_counter.parent.mkdir(parents=True, exist_ok=True)
+        self.search_counter.write_text(json.dumps(days, indent=1))
 
     def _count_vision(self, images):
         """Count one Vision request on disk; GoogleStop once the day's or the total cap is reached."""
@@ -214,6 +240,7 @@ class Google:
 
     def videos(self, query, before, n=PER_QUERY):
         """[{url, posted_at}]: YouTube videos for a query, uploaded before the day `before` (YYYY-MM-DD)."""
+        self._count_search()
         d = self._call("https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=relevance"
                        f"&maxResults={min(n, 50)}&q={quote(query)}&publishedBefore={before}T00:00:00Z")
         return [{"url": f"https://www.youtube.com/watch?v={it['id']['videoId']}", "posted_at": it["snippet"].get("publishedAt")}
@@ -926,6 +953,8 @@ def main(argv=None):
     key = os.environ.get(KEY_NAME)
     if not key:
         print(f"trace: no {KEY_NAME}, so the YouTube Data API and keyframe sources are skipped")
+    else:
+        print(f"trace: {searches_left()} Data API searches left today (Pacific); each recording uses up to {QUERIES}")
     searcher = Searcher(SparkSearch(a.cache / "verify" / "clips"), cache, max_usd=a.max_usd,
                         google=Google(key) if key else None, thumbs=Thumbs(a.sscd_model, cache), meta=post_meta)
     rows = trace(a.run, searcher, a.sscd_model, claimed_dates(a.claimed_dates),

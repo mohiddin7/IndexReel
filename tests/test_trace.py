@@ -324,7 +324,7 @@ def test_a_google_quota_error_stops_that_source_only(tmp_path, monkeypatch):
     assert any("ytapi source stopped" in m for m in said)
 
 
-def test_the_api_key_never_appears_in_an_error(monkeypatch):
+def test_the_api_key_never_appears_in_an_error(monkeypatch, tmp_path):
     import io
     import urllib.error
     import urllib.request
@@ -333,7 +333,7 @@ def test_the_api_key_never_appears_in_an_error(monkeypatch):
         raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"error": {"status": "PERMISSION_DENIED"}}'))
     monkeypatch.setattr(urllib.request, "urlopen", fail)
     try:
-        trace.Google("SECRET123").videos("lava", "2020-01-01")
+        trace.Google("SECRET123", search_counter=tmp_path / "s.json").videos("lava", "2020-01-01")
     except trace.GoogleStop as e:
         assert "SECRET123" not in str(e) and "403" in str(e)
     else:
@@ -635,3 +635,19 @@ def test_letterbox_bars_are_trimmed_before_the_pre_rank():
     assert trace.trim_bars(boxed).shape == pic.shape
     assert trace.trim_bars(pic).shape == pic.shape
     assert trace.trim_bars(np.zeros((90, 160, 3), np.uint8)).shape == (90, 160, 3)  # all black: left as is
+
+
+def test_data_api_searches_are_counted_per_pacific_day(tmp_path, monkeypatch):
+    g = trace.Google("k", counter=tmp_path / "v.json", search_counter=tmp_path / "s.json")
+    monkeypatch.setattr(g, "_call", lambda url, body=None: {"items": []})
+    monkeypatch.setattr(trace, "SEARCH_CAP", 2)
+    g.videos("lava", "2020-01-01")
+    g.videos("lava", "2020-01-01")
+    try:
+        g.videos("lava", "2020-01-01")
+    except trace.GoogleStop as e:
+        assert "search.list" in str(e)
+    else:
+        raise AssertionError("no stop at the daily search cap")
+    days = json.loads((tmp_path / "s.json").read_text())
+    assert list(days.values()) == [2] and trace.searches_left(tmp_path / "s.json") == 0
