@@ -266,6 +266,9 @@ class FakeGoogle:
         self.calls.append(("pages",))
         return self.p
 
+    def video_info(self, ids):
+        return {}
+
 
 def searcher(tmp_path, spark, **kw):
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -395,3 +398,17 @@ def test_a_failed_youtube_search_is_not_cached(tmp_path):
     s = trace.Searcher(FakeSpark([]), verify.Cache(tmp_path / "cache"), search=search, log=lambda *_: None)
     assert s.candidates(str(tmp_path / "v.mp4"))[0] == []
     assert [u for _, _, u in s.candidates(str(tmp_path / "v.mp4"))[0]] == YT["lava river at night"]
+
+
+def test_youtube_dates_come_from_the_data_api_when_it_is_on(tmp_path, monkeypatch):
+    g = trace.Google("k")
+    monkeypatch.setattr(g, "_call", lambda url, body=None: {"items": [
+        {"id": "old", "snippet": {"publishedAt": "2017-02-02T00:00:00Z"}, "contentDetails": {"duration": "PT1M5S"}},
+        {"id": "late", "snippet": {"publishedAt": "2022-01-01T00:00:00Z"}, "contentDetails": {"duration": "PT1H0M1S"}}]})
+    assert g.video_info(["old", "late"]) == {"old": {"day": "2017-02-02", "duration": 65}, "late": {"day": "2022-01-01", "duration": 3601}}
+    monkeypatch.setattr(g, "videos", lambda q, before, n: [])
+    metas = []
+    s = searcher(tmp_path, FakeSpark([]), google=g, meta=lambda u: metas.append(u) or {})
+    s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert s.notes["https://www.youtube.com/watch?v=late"] == "too_long" and "https://www.youtube.com/watch?v=old" not in s.notes
+    assert metas == []  # no yt-dlp request for a date the API gave

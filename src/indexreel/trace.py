@@ -66,6 +66,7 @@ VISION_CAP = {"day": 25, "total": 300}  # Vision requests; my console quota does
 VISION_COUNTER = Path.home() / ".cache" / "indexreel" / "vision_requests.json"
 KEY_NAME = "IndexReel_Trace_API_KEY_GCP"  # my Google API key, for the YouTube Data API and Cloud Vision only
 CORROBORATE_SEARCHES = 3
+PACE_S = 2  # seconds yt-dlp waits between requests to a platform: YouTube asks for a sign-in after a fast burst
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
            "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy", "prerank", "families", "strength",
@@ -216,6 +217,17 @@ class Google:
         return [{"url": f"https://www.youtube.com/watch?v={it['id']['videoId']}", "posted_at": it["snippet"].get("publishedAt")}
                 for it in d.get("items", []) if it.get("id", {}).get("videoId")]
 
+    def video_info(self, ids):
+        """{video id: {day, duration}} for up to 50 YouTube ids, from the platform's own record."""
+        d = self._call("https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails"
+                       f"&maxResults=50&id={','.join(ids[:50])}")
+        out = {}
+        for it in d.get("items", []):
+            m = re.fullmatch(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", it.get("contentDetails", {}).get("duration") or "")
+            secs = sum(int(x or 0) * k for x, k in zip(m.groups(), (86400, 3600, 60, 1))) if m else None
+            out[it["id"]] = {"day": day(it.get("snippet", {}).get("publishedAt")), "duration": secs}
+        return out
+
     def pages(self, jpegs):
         """[{url, title}]: pages that carry images matching any of the frames."""
         import base64
@@ -247,6 +259,7 @@ def keyframes(path, k=KEYFRAMES):
 def post_meta(url):
     """{day, duration} of a post from its platform, read by yt-dlp without downloading."""
     try:
+        time.sleep(PACE_S)
         r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--skip-download", "--socket-timeout", "20",
                             "--print", "%(extractor)s\t%(timestamp)s\t%(upload_date)s\t%(duration)s", "--", url],
                            capture_output=True, text=True, timeout=120)
@@ -316,7 +329,8 @@ def run_low(url, out):
     """fetch.run_ytdlp at low resolution, skipping long videos."""
     cmd = fetch.ytdlp_cmd(url, out)
     i = cmd.index("--")
-    cmd = cmd[:i] + ["-S", f"res:{SIZE}", "--match-filter", f"duration<={MAX_S}"] + cmd[i:]
+    cmd = cmd[:i] + ["-S", f"res:{SIZE}", "--match-filter", f"duration<={MAX_S}", "--sleep-requests", str(PACE_S),
+                     "--sleep-interval", str(PACE_S)] + cmd[i:]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -524,6 +538,15 @@ class Searcher:
             self.scores = {u: sc.get(v) for u, v in ids.items() if sc.get(v) is not None}
             # posts that cannot be pre-ranked (not on YouTube) keep their turn ahead of ranked ones
             order.sort(key=lambda o: -self.scores.get(o[2], 2.0))
+        if self.date_filter and before and "ytapi" in self.sources:  # YouTube dates from the Data API, not yt-dlp
+            ids = sorted({youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)})
+            known = {}
+            for i in range(0, len(ids), 50):
+                known.update(self._google("ytapi", ["videos", ids[i:i + 50]], lambda: self.google.video_info(ids[i:i + 50])))
+            for _, _, u in order:
+                v = known.get(youtube_id(u) or "")
+                if v:
+                    info.setdefault(u, {}).update({k: x for k, x in v.items() if x is not None})
         kept = 0
         for _, _, u in order:
             if kept >= MAX_CANDIDATES or not post_url(u):
