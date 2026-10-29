@@ -12,14 +12,13 @@ Spark answers and YouTube searches are cached, so a rerun costs nothing.
 """
 import argparse
 import csv
-import datetime
 import hashlib
 import json
-import shutil
+import re
 import subprocess
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from indexreel import cli, cluster, fetch, verify, withdraw
 
@@ -57,8 +56,11 @@ COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id"
            "earlier", "leak_exposed", "shown"]
 
 QUERY_PROMPT = """You are shown one video and the claims its post made about it. Answer with JSON only, no other text.
-Describe what the video shows in one sentence: the scene, place clues, any visible text, the kind of event. Then write {n} short search queries that would find other uploads of this same footage on YouTube, in the language that fits the place. The claims may be wrong (the footage may be older or from somewhere else), so write at least one query from what is visible alone, without the claimed place or date.
-Return {{"description": "...", "queries": ["...", ...]}}.
+The claims may be the false part: the footage may be older or from somewhere else. So put no claimed event name, place or date in any query.
+1. Describe in one sentence what the video shows: the scene, the camera's view, the objects and the motion.
+2. Say who most likely filmed or first published footage like this (for example a space agency, a geological survey, a news agency, a storm chaser, a security camera, a tour operator), and give that organisation's YouTube handle if it is a well-known organisation with an official channel, else "".
+3. Write {n} short YouTube search queries that would reach the earliest upload of this footage: the visible content in plain words; the visible content with the likely source's name; the visible content with an earlier year or an earlier event of the same kind.
+Return {{"description": "...", "source": "...", "handle": "@...", "queries": ["...", ...]}}.
 Claims: {claims}"""
 
 SEARCH_PROMPT = """You are shown one video and the claims its post made about it. Use web search to find posts on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo that carry this same footage, above all the earliest uploads. The claims may be wrong (the footage may be older or filmed elsewhere), so also search for what is visible, without the claimed place or date. Do not use or cite fact-checking sites or web archives such as {domains}. Search at most {n} times.
@@ -126,10 +128,11 @@ class SparkSearch(verify.SparkJudge):
         return (verify.parse("".join(out)) if final.status == "completed" else None), hits, cost + len(calls) * SEARCH_PRICE, final.status
 
 
-def ytsearch(query, n=PER_QUERY):
-    """YouTube watch URLs for a query, through yt-dlp without downloading anything."""
-    r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--flat-playlist", "--print", "url",
-                        "--", f"ytsearch{n}:{query}"], capture_output=True, text=True, timeout=120)
+def ytsearch(query, n=PER_QUERY, handle=None):
+    """YouTube watch URLs for a query, through yt-dlp without downloading anything; inside one channel with handle."""
+    target = (f"https://www.youtube.com/{handle}/search?query={quote(query)}" if handle else f"ytsearch{n}:{query}")
+    r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--flat-playlist", "--playlist-end", str(n),
+                        "--print", "url", "--", target], capture_output=True, text=True, timeout=120)
     return [ln.strip() for ln in r.stdout.splitlines() if ln.startswith("https://")]
 
 
@@ -236,20 +239,23 @@ class Searcher:
         listed = "; ".join(claims) or "(none)"
         ans, _ = self._spark("queries", clip, QUERY_PROMPT.format(n=QUERIES, claims=listed), False)
         queries = [str(q) for q in ((ans or {}).get("queries") or []) if str(q).strip()][:QUERIES]
-        yt = []
+        handle = str((ans or {}).get("handle") or "").strip()
+        handle = handle if re.fullmatch(r"@[A-Za-z0-9._-]{2,40}", handle) else None
+        yt, chan = [], []
         for q in queries:
-            key = hashlib.sha256(json.dumps(["ytsearch", PER_QUERY, q]).encode()).hexdigest()
-            urls = (self.cache.get(key) or {}).get("urls")
-            if urls is None:
-                urls = self.search(q, PER_QUERY)
-                self.cache.put(key, {"urls": urls})
-            yt += [("youtube", q, u) for u in urls]
+            for h, out in ((None, yt), (handle, chan)) if handle else ((None, yt),):
+                key = hashlib.sha256(json.dumps(["ytsearch", PER_QUERY, q] + ([h] if h else [])).encode()).hexdigest()
+                urls = (self.cache.get(key) or {}).get("urls")
+                if urls is None:
+                    urls = self.search(q, PER_QUERY, h)
+                    self.cache.put(key, {"urls": urls})
+                out += [("channel" if h else "youtube", q, u) for u in urls]
         text = SEARCH_PROMPT.format(n=SEARCHES, claims=listed, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
         ans, hits = self._spark("web", clip, text, True)
         web = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
         order, seen = [], set()
-        for i in range(max(len(web), len(yt))):  # alternate the sources, web first
-            for src in (web, yt):
+        for i in range(max(len(web), len(chan), len(yt))):  # take the sources in turn: web, channel, YouTube
+            for src in (web, chan, yt):
                 if i < len(src):
                     s, q, u = src[i]
                     if u not in seen:

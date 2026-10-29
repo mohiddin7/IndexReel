@@ -62,12 +62,13 @@ def run_dir(tmp_path, source=None):
     return run
 
 
+CH = {}
 YT = {"lava river at night": ["https://www.youtube.com/watch?v=old", "https://www.youtube.com/watch?v=late"]}
 
 
 def go(tmp_path, spark, posted, bands, dates=None, source=None, max_usd=1.0, hits=None):
     run = run_dir(tmp_path, source)
-    s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n: YT.get(q, []), max_usd=max_usd,
+    s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else CH.get(q, []), max_usd=max_usd,
                        log=lambda *_: None)
     rows = trace.trace(run, s, model=None, dates=dates or {"viral": "2021-12-05"}, log=lambda *_: None,
                        fetcher=fake_fetcher(posted), matcher=fake_matcher(bands))
@@ -158,7 +159,7 @@ def test_candidates_are_capped_and_a_rerun_is_free(tmp_path):
     assert sum(r["fetch"] == "over_cap" for r in rows) == len(rows) - trace.MAX_CANDIDATES
     assert rows[0]["source"] == "web" and rows[1]["source"] == "youtube"  # the sources alternate
     n = len(spark.calls)
-    s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n: YT.get(q, []), log=lambda *_: None)
+    s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else CH.get(q, []), log=lambda *_: None)
     s.candidates(str(tmp_path / "v.mp4"), ["Shows the Semeru eruption."])
     assert len(spark.calls) == n and s.spent == 0.0
 
@@ -189,3 +190,24 @@ def test_a_long_candidate_is_cut_around_the_stretch_that_matches_the_input(tmp_p
     rows2 = [{"clip": "youtube_long"}]
     trace.narrow(cli.MODEL, clip, tmp_path / "c", tmp_path / "w", rows2, log=lambda *_: None)  # a rerun keeps the cut
     assert rows2[0]["cut_start_s"] == r["cut_start_s"] and trace.duration(long) < 60
+
+
+def test_a_named_channel_is_searched_and_comes_before_global_search(tmp_path):
+    CH["lava river at night"] = ["https://www.youtube.com/watch?v=official"]
+    (tmp_path / "v.mp4").write_bytes(b"viral")
+    try:
+        spark = FakeSpark([])
+        orig = spark.ask
+        spark.ask = lambda clip, text, web: orig(clip, text, web) if web else (
+            {"queries": ["lava river at night"], "handle": "@USGS"}, [], 0.01, "completed")
+        s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else CH.get(q, []) if h == "@USGS" else [],
+                           log=lambda *_: None)
+        order, _, _ = s.candidates(str(tmp_path / "v.mp4"), [])
+        assert order[0] == ("channel", "lava river at night", "https://www.youtube.com/watch?v=official")
+        assert [u for _, _, u in order[1:]] == YT["lava river at night"]
+        spark.ask = lambda clip, text, web: orig(clip, text, web) if web else (
+            {"queries": ["lava river at night"], "handle": "@x/../evil"}, [], 0.01, "completed")
+        s2 = trace.Searcher(spark, verify.Cache(tmp_path / "cache2"), search=lambda q, n, h=None: [] if h else YT.get(q, []), log=lambda *_: None)
+        assert all(src != "channel" for src, _, _ in s2.candidates(str(tmp_path / "v.mp4"), [])[0])  # a bad handle is ignored
+    finally:
+        CH.clear()
