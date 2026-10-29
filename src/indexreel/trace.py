@@ -456,6 +456,31 @@ def best_match_times(model, frames, path, b0, b1, step=0.5):
     return [cand[i][0] for i in idx] if idx else None
 
 
+def from_input(p):
+    """The pair as seen from the input: (input id, candidate id, input core span, candidate core span, offset k with
+    candidate time = input time + k). The matcher orders a pair by sorted id, and some platforms sort before
+    "input_", so the input may be its `b`."""
+    span = lambda side: (float(p[f"core_{side}_start_s"]), float(p[f"core_{side}_end_s"])) if p.get(f"core_{side}_start_s") else None
+    if p["a"].startswith("input_") or not p["b"].startswith("input_"):
+        return p["a"], p["b"], span("a"), span("b"), float(p["offset_s"])
+    return p["b"], p["a"], span("b"), span("a"), -float(p["offset_s"])
+
+
+def input_left(src, p, out):
+    """The matcher's own evidence image with the input on the left: its halves are swapped when the input is `b`.
+    False when the image cannot be read."""
+    import cv2
+    import numpy as np
+    img = cv2.imread(str(src))
+    if img is None:
+        return False
+    if not p["a"].startswith("input_") and p["b"].startswith("input_"):
+        w = img.shape[1] // 2
+        img = np.hstack([img[:, w:], img[:, :w]])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return cv2.imwrite(str(out), img)
+
+
 def core_evidence(pdir, p, out, model=None):
     """Three frame pairs from inside the pair's core span (where the two clips really match), so the image shows the
     link even when the input is cut from a longer video. With an SSCD model, each input frame is shown beside the
@@ -465,24 +490,25 @@ def core_evidence(pdir, p, out, model=None):
     import numpy as np
     if not p.get("core_a_start_s"):
         return False
-    a0, a1, k = float(p["core_a_start_s"]), float(p["core_a_end_s"]), float(p["offset_s"])
+    ia, ib, core_in, core_cand, k = from_input(p)
+    a0, a1 = core_in
     path = {f.stem: f for f in pdir.iterdir() if f.is_symlink()}
     ts = sorted({a0 + 0.5, (a0 + a1) / 2, max(a0 + 0.5, a1 - 0.5)})
     ts = ts + [ts[-1]] * (3 - len(ts))
-    fas = [frame_at(path[p["a"]], t) for t in ts]
+    fas = [frame_at(path[ia], t) for t in ts]
     if any(f is None for f in fas):
         return False
     fas = [f[:, ::-1] if p.get("mirrored") == "1" else f for f in fas]
     tbs = [t + k for t in ts]
-    if model is not None and p.get("core_b_start_s"):
-        tbs = best_match_times(model, fas, path[p["b"]], float(p["core_b_start_s"]), float(p["core_b_end_s"])) or tbs
+    if model is not None and core_cand:
+        tbs = best_match_times(model, fas, path[ib], *core_cand) or tbs
     rows = []
     for t, tb, fa in zip(ts, tbs, fas):
-        fb = frame_at(path[p["b"]], tb)
+        fb = frame_at(path[ib], tb)
         if fb is None:
             return False
         left, right = cli.thumb(fa), cli.thumb(fb)
-        for img, name, at in ((left, p["a"], t), (right, p["b"], tb)):
+        for img, name, at in ((left, ia, t), (right, ib, tb)):
             cv2.putText(img, f"{name[:22]} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -724,7 +750,11 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
                 continue
             ev = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
             if not (p.get("evidence") and core_evidence(pdir, p, run / ev, model)):
-                ev = f"trace/{rec['id']}/pairs/{r['clip']}/run/{p['evidence']}" if p.get("evidence") else ""
+                ev = ""
+                if p.get("evidence"):  # the matcher's own image, with the input on the left
+                    ev = f"trace/{rec['id']}/pairs/{r['clip']}/matcher.jpg"
+                    if not input_left(pdir / "run" / p["evidence"], p, run / ev):
+                        ev = f"trace/{rec['id']}/pairs/{r['clip']}/run/{p['evidence']}"
             r.update({"band": cluster.effective_band(p), "verify_verdict": p.get("verify_verdict", ""), "evidence": ev})
             r["confirmed"] = int(r["band"] == "merged")
             dated = r.get("platform") in PLATFORMS and day(r.get("posted_at"))

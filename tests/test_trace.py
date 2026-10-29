@@ -451,3 +451,25 @@ def test_a_different_recording_does_not_come_out_looking_aligned(tmp_path):
     net = sscd.load(cli.MODEL)
     picked = sscd.embed(net, frames) @ sscd.embed(net, [trace.frame_at(b, t) for t in ts]).T
     assert picked.diagonal().max() < 0.3  # picking frames cannot make a different recording match
+
+
+def test_the_input_is_always_on_the_left_of_the_evidence(tmp_path, monkeypatch):
+    import cv2
+    import numpy as np
+    pdir = tmp_path / "pair"
+    pdir.mkdir()
+    for name in ("input_x.mp4", "TikTok_y.mp4"):  # "TikTok_" sorts before "input_", so the input is the matcher's b
+        (pdir / name).symlink_to(tmp_path / name)
+    shade = {"input_x": 250, "TikTok_y": 5}
+    monkeypatch.setattr(trace, "frame_at", lambda path, t: np.full((90, 160, 3), shade[path.stem], np.uint8))
+    p = {"a": "TikTok_y", "b": "input_x", "core_a_start_s": "2", "core_a_end_s": "8", "core_b_start_s": "1",
+         "core_b_end_s": "7", "offset_s": "-1", "mirrored": "0"}
+    assert trace.core_evidence(pdir, p, tmp_path / "core.jpg")
+    img = cv2.imread(str(tmp_path / "core.jpg"))
+    w = img.shape[1] // 2
+    assert img[30:, :w].mean() > img[30:, w:].mean() + 100  # the bright input is left, the dark candidate right
+    flat = np.hstack([np.full((50, 80, 3), 5, np.uint8), np.full((50, 80, 3), 250, np.uint8)])  # matcher image: b right
+    cv2.imwrite(str(tmp_path / "m.png"), flat)
+    trace.input_left(tmp_path / "m.png", p, tmp_path / "m2.png")
+    m2 = cv2.imread(str(tmp_path / "m2.png"))
+    assert m2[:, :80].mean() > 200 and m2[:, 80:].mean() < 50
