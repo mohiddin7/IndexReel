@@ -14,6 +14,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import re
 import subprocess
 import time
@@ -48,12 +49,22 @@ MAX_S = 1800  # longest candidate fetched, seconds (the coarse pass keeps long o
 COARSE_OVER = 90  # candidates longer than this (s) are first cut to the stretch a coarse pass flags
 COARSE_STEP = 4  # the coarse pass looks at one frame every this many seconds
 MARGIN = 15  # seconds kept on each side of that stretch; inside it the match runs at 1 frame per second as usual
-GUARD = {"web": 0.10, "queries": 0.03}
+GUARD = {"web": 0.10, "queries": 0.03, "corroborate": 0.10}
 VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is left, and keep it in reserve  # stop before a call when less than this is left of --max-usd
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
+# eval/trace-v2.md: sources, their families, and the choices made before anything is downloaded
+SOURCES = ("web", "keyframe", "channel", "ytapi", "youtube")
+FAMILY = {"web": "web", "keyframe": "keyframe", "channel": "youtube", "ytapi": "youtube", "youtube": "youtube"}
+LEAKY = {"web", "keyframe"}  # sources that can read fact-check pages
+BY_DATE = False  # yt-dlp search sorted by upload date instead of relevance
+PRERANK = True  # order YouTube results by SSCD on YouTube's own preview frames
+DATE_FILTER = True  # read the platform date without downloading; skip posts dated on or after the claimed date
+KEYFRAMES = 3  # input frames sent to Cloud Vision web detection
+CORROBORATE_SEARCHES = 3
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
-           "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy"]
+           "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy", "prerank", "families", "strength",
+           "corroborated_date", "corroboration_urls"]
 
 QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
 The footage may be older than it seems or from somewhere else, so work only from what the video shows.
@@ -64,6 +75,10 @@ Return {{"description": "...", "source": "...", "handle": "@...", "queries": [".
 
 SEARCH_PROMPT = """You are shown one video. Use web search to find posts on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo that carry this same footage, above all the earliest uploads. The footage may be older than it seems or from somewhere else, so search from what the video shows. Do not use or cite fact-checking sites or web archives such as {domains}. Search at most {n} times.
 Answer with JSON only, no other text: {{"posts": [{{"url": "...", "why": "..."}}]}}, at most 10 posts, each a link to the post itself, not to an article about it."""
+
+CORROBORATE_PROMPT = """You are shown one video, posted on {platform} on {posted} by {account}, with this caption: {caption}
+Use web search to find when and where the event this footage shows happened. Prefer official sources (a government agency, the organisation that filmed it) and independent news reports from the time. Search at most {n} times.
+Answer with JSON only, no other text: {{"event": "...", "date": "YYYY-MM-DD, or empty if no source gives it", "sources": [{{"url": "...", "date": "YYYY-MM-DD"}}]}}"""
 
 
 def _on(host, site):
@@ -133,11 +148,144 @@ class SparkSearch(verify.SparkJudge):
 
 
 def ytsearch(query, n=PER_QUERY, handle=None):
-    """YouTube watch URLs for a query, through yt-dlp without downloading anything; inside one channel with handle."""
-    target = (f"https://www.youtube.com/{handle}/search?query={quote(query)}" if handle else f"ytsearch{n}:{query}")
+    """YouTube results [{url, duration}] for a query, through yt-dlp without downloading anything; inside one channel
+    with handle. BY_DATE sorts global search by upload date, newest first."""
+    target = (f"https://www.youtube.com/{handle}/search?query={quote(query)}" if handle
+              else f"ytsearch{'date' if BY_DATE else ''}{n}:{query}")
     r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--flat-playlist", "--playlist-end", str(n),
-                        "--print", "url", "--", target], capture_output=True, text=True, timeout=120)
-    return [ln.strip() for ln in r.stdout.splitlines() if ln.startswith("https://")]
+                        "--print", "%(url)s\t%(duration)s", "--", target], capture_output=True, text=True, timeout=300)
+    out = []
+    for ln in r.stdout.splitlines():
+        url, _, d = ln.strip().partition("\t")
+        if url.startswith("https://"):
+            out.append({"url": url, "duration": float(d) if d not in ("", "NA", "None") else None})
+    return out
+
+
+class GoogleStop(Exception):
+    """A Google source cannot go on for this run: no key, quota or rate limit, or another HTTP error."""
+
+
+class Google:
+    """YouTube Data API v3 search and Cloud Vision web detection, with my API key (eval/trace-v2.md). The key goes
+    only into the request URL and is never logged."""
+
+    def __init__(self, key):
+        self.key = key
+
+    def _call(self, url, body=None):
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request(url + ("&" if "?" in url else "?") + "key=" + quote(self.key),
+                                     data=json.dumps(body).encode() if body is not None else None,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            try:
+                reason = json.loads(e.read()).get("error", {}).get("status") or ""
+            except ValueError:
+                reason = ""
+            raise GoogleStop(f"HTTP {e.code} {reason}".strip()) from None
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            raise GoogleStop(type(e).__name__) from None
+
+    def videos(self, query, before, n=PER_QUERY):
+        """[{url, posted_at}]: YouTube videos for a query, uploaded before the day `before` (YYYY-MM-DD)."""
+        d = self._call("https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=relevance"
+                       f"&maxResults={min(n, 50)}&q={quote(query)}&publishedBefore={before}T00:00:00Z")
+        return [{"url": f"https://www.youtube.com/watch?v={it['id']['videoId']}", "posted_at": it["snippet"].get("publishedAt")}
+                for it in d.get("items", []) if it.get("id", {}).get("videoId")]
+
+    def pages(self, jpegs):
+        """[{url, title}]: pages that carry images matching any of the frames."""
+        import base64
+        d = self._call("https://vision.googleapis.com/v1/images:annotate", {"requests": [
+            {"image": {"content": base64.b64encode(j).decode()}, "features": [{"type": "WEB_DETECTION", "maxResults": 50}]}
+            for j in jpegs]})
+        out = []
+        for resp in d.get("responses", []):
+            for p in (resp.get("webDetection") or {}).get("pagesWithMatchingImages", []):
+                out.append({"url": p.get("url"), "title": re.sub(r"<[^>]+>", "", p.get("pageTitle") or "")})
+        return out
+
+
+def keyframes(path, k=KEYFRAMES):
+    """k JPEG frames spread over the clip, at most 640 px wide."""
+    import cv2
+    d = duration(path) or 1.0
+    out = []
+    for i in range(k):
+        f = frame_at(path, d * (i + 0.5) / k)
+        if f is not None:
+            if f.shape[1] > 640:
+                f = cv2.resize(f, (640, round(f.shape[0] * 640 / f.shape[1])))
+            out.append(cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes())
+    return out
+
+
+def post_meta(url):
+    """{day, duration} of a post from its platform, read by yt-dlp without downloading."""
+    try:
+        r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--skip-download", "--socket-timeout", "20",
+                            "--print", "%(extractor)s\t%(timestamp)s\t%(upload_date)s\t%(duration)s", "--", url],
+                           capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return {}
+    ln = (r.stdout.strip().splitlines() or [""])[-1].split("\t")
+    if len(ln) != 4 or ln[0].lower() == "generic":
+        return {}
+    ex, ts, ud, d = ln
+    if ts not in ("", "NA"):
+        dayv = time.strftime("%Y-%m-%d", time.gmtime(float(ts)))
+    else:
+        dayv = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}" if re.fullmatch(r"\d{8}", ud) else None
+    return {"day": dayv, "duration": float(d) if d not in ("", "NA") else None}
+
+
+def youtube_id(url):
+    p = urlsplit(url)
+    if (p.hostname or "").endswith("youtu.be"):
+        return p.path.strip("/") or None
+    m = re.search(r"(?:v=|/shorts/|/live/)([A-Za-z0-9_-]+)", url)
+    return m.group(1) if m else None
+
+
+class Thumbs:
+    """Pre-rank: SSCD of YouTube's own preview frames of a video against the input's frames (plain and mirrored)."""
+
+    def __init__(self, model, cache):
+        self.model, self.cache, self.net, self.feats = model, cache, None, {}
+
+    def _get(self, url):
+        import urllib.request
+        try:
+            with urllib.request.urlopen(url, timeout=20) as r:
+                return r.read()
+        except OSError:
+            return None
+
+    def scores(self, clip, ids):
+        import cv2
+        import numpy as np
+        from indexreel import sscd
+        out, sha = {}, verify.sha(clip)
+        for vid in ids:
+            key = hashlib.sha256(json.dumps(["thumb", sha, vid]).encode()).hexdigest()
+            hit = self.cache.get(key)
+            if hit is None:
+                if self.net is None:
+                    self.net = sscd.load(self.model)
+                if clip not in self.feats:
+                    self.feats[clip] = np.vstack(sscd.clip_features(self.net, clip))
+                imgs = [cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR) for b in
+                        (self._get(f"https://i.ytimg.com/vi/{vid}/{n}.jpg") for n in ("hq1", "hq2", "hq3", "hqdefault")) if b]
+                imgs = [i for i in imgs if i is not None]
+                hit = {"score": float((sscd.embed(self.net, imgs) @ self.feats[clip].T).max()) if imgs else None}
+                self.cache.put(key, hit)
+            out[vid] = hit["score"]
+        return out
 
 
 def run_low(url, out):
@@ -252,8 +400,12 @@ def core_evidence(pdir, p, out):
 class Searcher:
     """The two sources with caching and a spending cap. spark and search are injectable for tests."""
 
-    def __init__(self, spark, cache, search=ytsearch, max_usd=1.0, log=print):
+    def __init__(self, spark, cache, search=ytsearch, max_usd=1.0, log=print, google=None, thumbs=None, meta=None,
+                 sources=SOURCES, prerank=PRERANK, date_filter=DATE_FILTER):
         self.spark, self.cache, self.search, self.max_usd, self.log, self.spent = spark, cache, search, max_usd, log, 0.0
+        self.google, self.thumbs, self.meta = google, thumbs, meta
+        self.sources, self.prerank, self.date_filter = set(sources), prerank, date_filter
+        self.leaks, self.notes, self.scores = {}, {}, {}  # of the last candidates() call
 
     def _spark(self, kind, clip, text, web):
         key = hashlib.sha256(json.dumps([verify.MODEL, kind, text, verify.sha(clip)]).encode()).hexdigest()
@@ -271,27 +423,64 @@ class Searcher:
             self.cache.put(key, hit)
         return hit["answer"], hit["hits"]
 
-    def candidates(self, clip):
-        """([(source, query, url)] in fetch order, search hits, leak-exposed hits)."""
+    def _cached(self, key, fn):
+        key = hashlib.sha256(json.dumps(key).encode()).hexdigest()
+        hit = self.cache.get(key)
+        if hit is None:
+            hit = {"v": fn()}
+            self.cache.put(key, hit)
+        return hit["v"] if "v" in hit else hit.get("urls")  # a YouTube search cached by v1 trace
+
+    def _google(self, kind, key, fn):
+        """A Google call, cached; on GoogleStop that source is off for the rest of the run."""
+        if self.google is None or kind in self.notes.get("_off", set()):
+            return []
+        try:
+            return self._cached(key, fn)
+        except GoogleStop as e:
+            self.notes.setdefault("_off", set()).add(kind)
+            self.log(f"trace: the {kind} source stopped for this run ({e})")
+            return []
+
+    def candidates(self, clip, before=None):
+        """([(source, query, url)] in fetch order, search hits, leak-exposed hits). Also sets, for this call:
+        self.leaks {source: leak-exposed hits}, self.notes {url: why it is not fetched}, self.scores {url: pre-rank}."""
+        off = self.notes.get("_off", set())
+        self.leaks, self.notes, self.scores = {}, {"_off": off}, {}
         ans, _ = self._spark("queries", clip, QUERY_PROMPT.format(n=QUERIES), False)
         queries = [str(q) for q in ((ans or {}).get("queries") or []) if str(q).strip()][:QUERIES]
         handle = str((ans or {}).get("handle") or "").strip()
         handle = handle if re.fullmatch(r"@[A-Za-z0-9._-]{2,40}", handle) else None
-        yt, chan = [], []
+        lists = {s: [] for s in SOURCES}
+        info = {}  # url -> {duration, day} known from search
         for q in queries:
-            for h, out in ((None, yt), (handle, chan)) if handle else ((None, yt),):
-                key = hashlib.sha256(json.dumps(["ytsearch", PER_QUERY, q] + ([h] if h else [])).encode()).hexdigest()
-                urls = (self.cache.get(key) or {}).get("urls")
-                if urls is None:
-                    urls = self.search(q, PER_QUERY, h)
-                    self.cache.put(key, {"urls": urls})
-                out += [("channel" if h else "youtube", q, u) for u in urls]
-        text = SEARCH_PROMPT.format(n=SEARCHES, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
-        ans, hits = self._spark("web", clip, text, True)
-        web = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
+            for h, s in ((None, "youtube"), (handle, "channel")):
+                if s not in self.sources or (h is None and s == "channel"):
+                    continue
+                key = ["ytsearch", PER_QUERY, q] + ([h] if h else []) + (["date"] if BY_DATE and not h else [])
+                for it in self._cached(key, lambda: self.search(q, PER_QUERY, h)):
+                    it = it if isinstance(it, dict) else {"url": it}
+                    lists[s].append((s, q, it["url"]))
+                    info.setdefault(it["url"], {})["duration"] = it.get("duration")
+            if "ytapi" in self.sources and before:
+                for it in self._google("ytapi", ["ytapi", PER_QUERY, q, before], lambda: self.google.videos(q, before, PER_QUERY)):
+                    lists["ytapi"].append(("ytapi", q, it["url"]))
+                    info.setdefault(it["url"], {})["day"] = day(it.get("posted_at"))
+        hits = []
+        if "web" in self.sources:
+            text = SEARCH_PROMPT.format(n=SEARCHES, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
+            ans, hits = self._spark("web", clip, text, True)
+            lists["web"] = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
+            self.leaks["web"] = leaky(hits)
+        if "keyframe" in self.sources and self.google is not None:
+            pages = self._google("keyframe", ["vision", KEYFRAMES, verify.sha(clip)], lambda: self.google.pages(keyframes(clip)))
+            lists["keyframe"] = [("keyframe", "", p["url"]) for p in pages if post_url(p.get("url"))]
+            self.leaks["keyframe"] = leaky(pages)
+            hits = hits + pages
         order, at = [], {}
-        for i in range(max(len(web), len(chan), len(yt))):  # take the sources in turn: web, channel, YouTube
-            for src in (web, chan, yt):
+        srcs = [lists[s] for s in SOURCES]
+        for i in range(max(map(len, srcs))):  # take the sources in turn
+            for src in srcs:
                 if i < len(src):
                     s, q, u = src[i]
                     if u not in at:
@@ -300,7 +489,42 @@ class Searcher:
                     elif s not in order[at[u]][0].split("+"):  # found again: keep every source that found it
                         s0, q0, _ = order[at[u]]
                         order[at[u]] = (f"{s0}+{s}", q0 or q, u)
-        return order, hits, leaky(hits)
+        if self.prerank and self.thumbs is not None:
+            ids = {u: youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)}
+            sc = self.thumbs.scores(clip, sorted(set(ids.values())))
+            self.scores = {u: sc.get(v) for u, v in ids.items() if sc.get(v) is not None}
+            # posts that cannot be pre-ranked (not on YouTube) keep their turn ahead of ranked ones
+            order.sort(key=lambda o: -self.scores.get(o[2], 2.0))
+        kept = 0
+        for _, _, u in order:
+            if kept >= MAX_CANDIDATES or not post_url(u):
+                continue
+            d = (info.get(u) or {}).get("duration")
+            if d and d > MAX_S:
+                self.notes[u] = "too_long"
+                continue
+            if self.date_filter and before and self.meta is not None:
+                dayv = (info.get(u) or {}).get("day")
+                if dayv is None:
+                    m = self._cached(["meta", u], lambda: self.meta(u))
+                    dayv, d = m.get("day"), m.get("duration")
+                    if d and d > MAX_S:
+                        self.notes[u] = "too_long"
+                        continue
+                if dayv and dayv >= before:
+                    self.notes[u] = "after_claim"
+                    continue
+            kept += 1
+        all_leaks = [h for v in self.leaks.values() for h in v]
+        return order, hits, all_leaks
+
+    def corroborate(self, clip, info):
+        """The date-corroboration answer for one shown copy ({} when skipped)."""
+        text = CORROBORATE_PROMPT.format(platform=info.get("platform") or "", posted=day(info.get("posted_at")) or "",
+                                         account=info.get("account") or "", caption=(info.get("caption") or "")[:1000],
+                                         n=CORROBORATE_SEARCHES)
+        ans, _ = self._spark("corroborate", clip, text, True)
+        return ans if isinstance(ans, dict) else {}
 
 
 def claimed_dates(path):
@@ -320,16 +544,22 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     before = min([dates[m] for m in members if m in dates] or [p for p in posted if p] or [None])
     own = {((by_id[m].get("source") or {}).get("platform"), (by_id[m].get("source") or {}).get("post_id")) for m in members}
 
-    order, hits, leaks = searcher.candidates(str(src))  # what the clip shows only; the claims stay on the page
+    order, hits, leaks = searcher.candidates(str(src), before)  # what the clip shows only; the claims stay on the page
+    exposed = {s for s, v in searcher.leaks.items() if v} if searcher.leaks else ({"web"} if leaks else set())
     work = run / "trace" / rec["id"]
     cdir = work / "clips"
     cdir.mkdir(parents=True, exist_ok=True)
-    (work / "search_hits.json").write_text(json.dumps({"hits": hits, "leak_exposed": leaks}, indent=1))
+    (work / "search_hits.json").write_text(json.dumps({"hits": hits, "leak_exposed": leaks,
+                                                       "leak_exposed_by_source": searcher.leaks}, indent=1))
     rows, urls = [], []
     for s, q, u in order:
-        row = {"recording": rec["id"], "input": clip["id"], "source": s, "query": q, "url": u, "leak_exposed": int(bool(leaks))}
+        row = {"recording": rec["id"], "input": clip["id"], "source": s, "query": q, "url": u, "leak_exposed": int(bool(exposed)),
+               "prerank": round(searcher.scores[u], 4) if u in searcher.scores else "",
+               "families": "+".join(sorted({FAMILY.get(x, x) for x in s.split("+")}))}
         if not post_url(u):
             row["fetch"] = "excluded" if excluded(u) else "not_a_post"
+        elif u in searcher.notes:
+            row["fetch"] = searcher.notes[u]
         elif len(urls) >= MAX_CANDIDATES:
             row["fetch"] = "over_cap"
         else:
@@ -396,9 +626,25 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     for r in rows:
         r["shown"] = int(bool(shown) and r is shown[0])
         r["claimed_date"] = before or ""
-        # found only by a web search that also read fact-check pages: fails leak rule 2 of eval/trace.md
-        r["leak_copy"] = int(bool(leaks) and set(r["source"].split("+")) <= {"web"})
+        # found only by sources that also read fact-check pages: fails leak rule 2 (eval/trace-v2.md, per source)
+        r["leak_copy"] = int(set(r["source"].split("+")) <= exposed)
+    if shown and hasattr(searcher, "corroborate"):
+        corroborate(searcher, shown[0], cdir)
     return rows
+
+
+def corroborate(searcher, r, cdir):
+    """Date corroboration and strength of the shown copy (eval/trace-v2.md, Corroboration)."""
+    f = next((p for p in sorted(cdir.glob(r["clip"] + ".*")) if not p.name.endswith(".json")), None)
+    info = json.loads((cdir / f"{r['clip']}.source.json").read_text()) if (cdir / f"{r['clip']}.source.json").exists() else {}
+    ans = searcher.corroborate(str(f), info) if f else {}
+    found = str(ans.get("date") or "")[:10] if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(ans.get("date") or "")[:10]) else ""
+    urls = [str(s.get("url")) for s in (ans.get("sources") or []) if isinstance(s, dict) and s.get("url")]
+    sites = {(urlsplit(u).hostname or "").lower().removeprefix("www.") for u in urls} - {""}
+    corroborated = bool(found) and found <= (day(r.get("posted_at")) or "") and len(sites) >= 2
+    r["corroborated_date"] = found if corroborated else ""
+    r["corroboration_urls"] = " ".join(urls)
+    r["strength"] = "strong" if "+" in r["families"] or corroborated else "single-source"
 
 
 def trace(run, searcher, model=cli.MODEL, dates=None, judge=None, cache=None, log=print, **kw):
@@ -424,7 +670,12 @@ def main(argv=None):
     ap.add_argument("--cache", type=Path, default=Path.home() / ".cache" / "indexreel")
     ap.add_argument("--sscd-model", default=str(cli.MODEL))
     a = ap.parse_args(argv)
-    searcher = Searcher(SparkSearch(a.cache / "verify" / "clips"), verify.Cache(a.cache / "trace"), max_usd=a.max_usd)
+    cache = verify.Cache(a.cache / "trace")
+    key = os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        print("trace: no GOOGLE_API_KEY, so the YouTube Data API and keyframe sources are skipped")
+    searcher = Searcher(SparkSearch(a.cache / "verify" / "clips"), cache, max_usd=a.max_usd,
+                        google=Google(key) if key else None, thumbs=Thumbs(a.sscd_model, cache), meta=post_meta)
     rows = trace(a.run, searcher, a.sscd_model, claimed_dates(a.claimed_dates),
                  verify.SparkJudge(a.cache / "verify" / "clips"), verify.Cache(a.cache / "verify" / "answers"))
     n = sum(r.get("confirmed") == 1 for r in rows)

@@ -48,7 +48,7 @@ def fake_matcher(bands):
 
 def run_dir(tmp_path, source=None):
     run = tmp_path / "run"
-    run.mkdir()
+    run.mkdir(parents=True)
     (tmp_path / "v.mp4").write_bytes(b"viral")
     clip = {"id": "viral", "path": str(tmp_path / "v.mp4"), **({"source": source} if source else {})}
     (run / "clips.json").write_text(json.dumps({"version": 1, "clips": [clip]}))
@@ -250,3 +250,106 @@ def test_a_copy_found_only_by_a_leaky_web_search_is_marked(tmp_path):
     assert by["https://x.com/u/status/9"]["leak_copy"] == 1
     assert set(by["https://www.youtube.com/watch?v=old"]["source"].split("+")) == {"web", "youtube"}
     assert by["https://www.youtube.com/watch?v=old"]["leak_copy"] == 0  # YouTube search found it too
+
+
+class FakeGoogle:
+    def __init__(self, videos=(), pages=(), stop=None):
+        self.v, self.p, self.stop, self.calls = list(videos), list(pages), stop, []
+
+    def videos(self, q, before, n):
+        self.calls.append(("videos", before))
+        if self.stop:
+            raise trace.GoogleStop(self.stop)
+        return self.v
+
+    def pages(self, jpegs):
+        self.calls.append(("pages",))
+        return self.p
+
+
+def searcher(tmp_path, spark, **kw):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "v.mp4").write_bytes(b"viral")
+    return trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: [] if h else YT.get(q, []),
+                          log=kw.pop("log", lambda *_: None), **kw)
+
+
+def test_posts_dated_on_or_after_the_claim_or_too_long_are_not_fetched(tmp_path):
+    meta = {"https://www.youtube.com/watch?v=old": {"day": "2017-02-02", "duration": 60},
+            "https://www.youtube.com/watch?v=late": {"day": "2021-12-05", "duration": 60},
+            "https://x.com/u/status/9": {"day": "2017-01-01", "duration": 4000}}
+    s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"]), meta=lambda u: meta[u])
+    s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert s.notes["https://www.youtube.com/watch?v=late"] == "after_claim"  # the claimed day itself is not earlier
+    assert s.notes["https://x.com/u/status/9"] == "too_long" and "https://www.youtube.com/watch?v=old" not in s.notes
+    _, _, rows = go(tmp_path / "g", FakeSpark([]), {"https://www.youtube.com/watch?v=old": ("youtube", "old", "2017-02-02")}, {})
+    assert not any(r["fetch"] in ("after_claim", "too_long") for r in rows)  # without a meta reader nothing is skipped
+
+
+def test_prerank_orders_youtube_results_and_keeps_other_posts_ahead(tmp_path):
+    class Thumbs:
+        def scores(self, clip, ids):
+            return {"old": 0.2, "late": 0.9}
+    s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"]), thumbs=Thumbs())
+    order, _, _ = s.candidates(str(tmp_path / "v.mp4"))
+    assert [u for _, _, u in order] == ["https://x.com/u/status/9", "https://www.youtube.com/watch?v=late",
+                                        "https://www.youtube.com/watch?v=old"]
+    assert s.scores["https://www.youtube.com/watch?v=late"] == 0.9
+
+
+def test_google_sources_and_a_leak_counted_per_source(tmp_path):
+    g = FakeGoogle(videos=[{"url": "https://www.youtube.com/watch?v=api", "posted_at": "2015-01-01T00:00:00Z"}],
+                   pages=[{"url": "https://www.tiktok.com/@a/video/1", "title": "lava"},
+                          {"url": "https://factcheck.afp.com/x", "title": "Fact check"}])
+    s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"]), google=g)
+    order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    src = {u: x for x, _, u in order}
+    assert src["https://www.youtube.com/watch?v=api"] == "ytapi" and src["https://www.tiktok.com/@a/video/1"] == "keyframe"
+    assert ("videos", "2021-12-05") in g.calls and set(s.leaks) == {"web", "keyframe"} and s.leaks["keyframe"] and not s.leaks["web"]
+    s2 = searcher(tmp_path / "n", FakeSpark([]), google=g)
+    s2.candidates(str(tmp_path / "n" / "v.mp4"))  # no claimed date: the date-bounded search is not made
+    assert ("videos", None) not in g.calls
+
+
+def test_a_google_quota_error_stops_that_source_only(tmp_path):
+    said = []
+    s = searcher(tmp_path, FakeSpark([]), google=FakeGoogle(stop="HTTP 403 quotaExceeded"), log=said.append)
+    order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert [u for _, _, u in order] == YT["lava river at night"]
+    assert any("ytapi source stopped" in m for m in said)
+
+
+def test_the_api_key_never_appears_in_an_error(monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+
+    def fail(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"error": {"status": "PERMISSION_DENIED"}}'))
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    try:
+        trace.Google("SECRET123").videos("lava", "2020-01-01")
+    except trace.GoogleStop as e:
+        assert "SECRET123" not in str(e) and "403" in str(e)
+    else:
+        raise AssertionError("no GoogleStop")
+
+
+def test_strength_of_the_shown_copy(tmp_path):
+    def ask_with(answer):
+        spark = FakeSpark([])
+        orig = spark.ask
+        spark.ask = lambda clip, text, web: ((answer, [], 0.01, "completed") if "when and where" in text else orig(clip, text, web))
+        return spark
+    posted = {"https://www.youtube.com/watch?v=old": ("youtube", "old", "2017-02-02")}
+    two_sites = {"date": "2017-01-31", "sources": [{"url": "https://www.usgs.gov/a"}, {"url": "https://www.bbc.com/b"}]}
+    for answer, want in ((two_sites, "strong"), ({**two_sites, "sources": two_sites["sources"][:1]}, "single-source"),
+                         ({**two_sites, "date": "2017-03-01"}, "single-source")):
+        tmp_path = tmp_path / "x"
+        _, _, rows = go(tmp_path, ask_with(answer), posted, {"youtube_old": "merged"})
+        r = next(r for r in rows if r["shown"] == 1)
+        assert r["strength"] == want and r["families"] == "youtube"
+        assert r["corroborated_date"] == ("2017-01-31" if want == "strong" else "")
+    tmp_path = tmp_path / "y"
+    _, _, rows = go(tmp_path, ask_with({}), posted, {"youtube_old": "merged"})  # found by one family, no date
+    assert next(r for r in rows if r["shown"] == 1)["strength"] == "single-source"

@@ -192,17 +192,17 @@ One JSON object per line, appended and never edited:
 
 ## trace.csv
 
-`indexreel trace <run dir> [--claimed-dates FILE] [--max-usd 1]` looks for earlier uploads of each recording and writes `trace.csv`, one row per candidate post, plus a work folder `trace/<recording>/`. The rules it follows are in `eval/trace.md`. It never says a claim is true or false.
+`indexreel trace <run dir> [--claimed-dates FILE] [--max-usd 1]` looks for earlier uploads of each recording and writes `trace.csv`, one row per candidate post, plus a work folder `trace/<recording>/`. The rules it follows are in `eval/trace.md` and `eval/trace-v2.md`. It never says a claim is true or false.
 
 | column | meaning |
 |---|---|
 | `recording` | recording id from `clusters.json` (after human decisions) |
 | `input` | the recording's clip that was searched for (its first member) |
-| `source` | `web` (Spark with web search), `channel` (YouTube search inside the channel Spark named as the likely first source) or `youtube` (YouTube search); every source that found the post, joined with `+` (for example `web+youtube`) |
-| `query` | the YouTube query that found it; empty for `web` |
+| `source` | `web` (Spark with web search), `keyframe` (Cloud Vision web detection on the input's keyframes), `channel` (YouTube search inside the channel Spark named as the likely first source), `ytapi` (YouTube Data API search for uploads before the claimed date) or `youtube` (YouTube search); every source that found the post, joined with `+` (for example `web+youtube`) |
+| `query` | the YouTube query that found it; empty for `web` and `keyframe` |
 | `url` | the candidate post |
 | `platform`, `post_id`, `account`, `posted_at` | from the fetched post's sidecar (see Fetching posts); `posted_at` is the platform's own post time |
-| `fetch` | `ok`, `error <code>` (codes as in Fetching posts), `excluded` (a fact-checking site or web archive), `not_a_post` (not a post on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo), `over_cap` (more than 10 candidates); a video longer than 30 minutes fails with `error other`, `same_post_as_input` |
+| `fetch` | `ok`, `error <code>` (codes as in Fetching posts), `excluded` (a fact-checking site or web archive), `not_a_post` (not a post on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo), `over_cap` (more than 10 candidates), `after_claim` (the platform dates it on or after the claimed date, read before download), `too_long` (longer than 30 minutes, read before download; a longer video that gets through fails with `error other`), `same_post_as_input` |
 | `clip` | the fetched candidate's id in `trace/<recording>/clips/` |
 | `duration_s` | the fetched video's length |
 | `cut_start_s`, `cut_end_s`, `coarse` | for a candidate longer than 90 s: the stretch it was cut to before matching (a coarse pass at one frame every 4 s finds the stretch most like the input, plus the input's length and 15 s on each side) and the coarse pass's best cosine; empty otherwise. Times in the evidence are relative to the cut |
@@ -211,14 +211,20 @@ One JSON object per line, appended and never edited:
 | `evidence` | an evidence image relative to the run directory: `trace/<recording>/pairs/<clip>/core.jpg`, three aligned frame pairs (start, middle, end) from inside the pair's core span, the input on the left; the matcher's own image when the pair has no core span |
 | `confirmed` | 1 when `band` is `merged`, else 0 |
 | `earlier` | 1 when the platform dates the post on a UTC day before the claimed date, 0 when not; empty when the post has no platform date (yt-dlp's generic extractor or no date) or no claimed date is known |
-| `leak_exposed` | 1 when any web search hit for this recording was on a fact-checking site or web archive, or had a fact-check title (`trace/<recording>/search_hits.json` lists them) |
+| `leak_exposed` | 1 when any page the web or keyframe search returned for this recording was on a fact-checking site or web archive, or had a fact-check title (`trace/<recording>/search_hits.json` lists them, by source) |
 | `shown` | 1 on the earliest confirmed copy with `earlier` 1; at most one row per recording |
 | `claimed_date` | the recording's claimed date (see below), the same on every row of a recording; empty when none is known |
-| `leak_copy` | 1 when this post was found only by web search and that recording's web search also read a fact-checking page (`leak_exposed`): the copy fails leak rule 2 of `eval/trace.md`. Trace does not know which page led to a post, so this does not say the post was found through a fact-check |
+| `leak_copy` | 1 when every source that found this post (web, keyframe) also returned a fact-checking page for this recording: the copy fails leak rule 2 (`eval/trace-v2.md`). Trace does not know which page led to a post, so this does not say the post was found through a fact-check |
+| `prerank` | SSCD similarity of YouTube's own preview frames of the post to the input's frames, used to order YouTube results before download; empty for posts not on YouTube |
+| `families` | the source families that found the post: `web`, `keyframe`, `youtube` (`channel`, `ytapi` and `youtube` together), joined with `+` |
+| `strength` | on the shown row only: `strong` when two families found it, or when the date search below gives a date on or before its post date, cited by at least two sites; else `single-source` |
+| `corroborated_date` | on the shown row only: the date of the footage's event from a separate web search, when it counts as corroboration; else empty |
+| `corroboration_urls` | on the shown row only: the pages that search cited, separated by spaces. Fact-check pages may be among them; they never find candidates |
 
 - The claimed date of a recording is the earliest date in `--claimed-dates` (CSV `clip, claimed_date`) for its clips, else the earliest `posted_at` of its clips.
 - Search reads only what the recording's clip shows. No claim, caption or post text goes into it: a claim may be false in its event, place or date, and searching for it pulls in material about the claimed event (`eval/trace.md`, Amendment A). The claims stay in `claims.csv` and on the page, beside the earliest copy.
-- Spark answers and YouTube searches are cached (`~/.cache/indexreel/trace`), so a rerun costs nothing. A Spark request is made only while enough of `--max-usd` is left for it; each candidate is verified only while $0.05 is left. The last lines are `trace: <n> candidates, <n> confirmed copies, <n> shown; spent $X now` and one `trace: <recording>: earliest confirmed copy <url> posted <time> on <platform>` per shown row.
+- The YouTube Data API and keyframe sources need `GOOGLE_API_KEY`; without it, or after a quota or HTTP error, they are skipped for the run and the log says so.
+- Spark answers, YouTube searches, Google answers, preview-frame scores and post dates are cached (`~/.cache/indexreel/trace`), so a rerun costs nothing. A Spark request is made only while enough of `--max-usd` is left for it; each candidate is verified only while $0.05 is left. The last lines are `trace: <n> candidates, <n> confirmed copies, <n> shown; spent $X now` and one `trace: <recording>: earliest confirmed copy <url> posted <time> on <platform>` per shown row.
 
 ## run.json
 

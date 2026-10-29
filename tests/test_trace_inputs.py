@@ -22,3 +22,16 @@ def test_flips_never_cancel_and_each_edit_is_in_the_filter():
 def test_case_order_is_numeric():
     rows = [{"case": c, "kind": "b"} for c in ("t11", "t2", "t1", "t10")]
     assert list(ti.edits_for(rows)) == ["t1", "t2", "t10", "t11"]
+
+
+def test_a_compilation_puts_the_copy_between_two_synthetic_fillers(tmp_path):
+    import subprocess
+    src = tmp_path / "src.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x240:rate=25", "-t", "8", "-pix_fmt",
+                    "yuv420p", str(src)], check=True)
+    (tmp_path / "out").mkdir()
+    row = {"case": "t1", "source": str(src), "start_s": "1", "end_s": "5", "flipped": "0"}
+    out = ti.make_b(row, "compilation", tmp_path / "out", tmp_path)
+    d = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out)],
+                             capture_output=True, text=True).stdout)
+    assert abs(d - (6 + 4 + 6)) < 0.5

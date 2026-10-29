@@ -25,10 +25,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from indexreel import fetch  # noqa: E402
 
 EDITS = ["flip", "slow", "zoom", "compilation"]
-# Unrelated public-domain filler for the compilation edit: NASA's Artemis I re-entry video (images.nasa.gov
-# art001m1203451716); the test split has no space case.
-FILLER = ROOT / "data" / "trace_dev" / "src" / "nasa_artemis1_reentry_small.mp4"
-FILLER_SPANS = [(60, 66), (1300, 1306)]
+# Filler for the compilation edit: 6 s of ffmpeg's synthetic Game of Life pattern on each side, so that no search
+# can find real uploads of the filler (eval/trace-v2.md, Inputs).
+FILLER = ["life=s=640x360:rate=25:seed=2910:mold=10", "life=s=640x360:rate=25:seed=2911:mold=10"]
 SCALE = "scale='if(gt(iw,ih),720,-2)':'if(gt(iw,ih),-2,720)'"
 HOSTS = ["www.youtube.com", "youtube.com", "youtu.be", "www.tiktok.com", "www.instagram.com", "www.facebook.com",
          "www.reddit.com", "vimeo.com"]
@@ -74,9 +73,9 @@ def make_b(row, edit, out, work):
         part.rename(dest)
         return dest
     pieces = []
-    for k, (a, b) in enumerate(FILLER_SPANS):
+    for k, src in enumerate(FILLER):
         p = work / f"{row['case']}_filler{k}.mp4"
-        ffmpeg("-ss", a, "-to", b, "-i", FILLER, "-vf", SCALE, "-an", "-c:v", "libx264", "-crf", 23, "-pix_fmt", "yuv420p",
+        ffmpeg("-f", "lavfi", "-i", src, "-t", 6, "-vf", SCALE, "-an", "-c:v", "libx264", "-crf", 23, "-pix_fmt", "yuv420p",
                "-r", 25, p)
         pieces.append(p)
     # the copy goes between the two fillers, all scaled to the copy's frame size
