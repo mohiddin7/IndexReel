@@ -72,3 +72,9 @@ def test_score_counts_leaks_per_copy_and_fails_on_any_unclear_link(tmp_path):
 def test_wilson():
     lo, hi = st.wilson(6, 15)
     assert 0.19 < lo < 0.20 and 0.64 < hi < 0.65
+
+
+def test_v2_runs_use_traces_leak_copy_column():
+    assert st.passes_leak({"leak_copy": "0", "leak_exposed": "1", "source": "web"})  # e.g. web+ytapi in v2
+    assert not st.passes_leak({"leak_copy": "1", "leak_exposed": "1", "source": "web"})
+    assert st.passes_leak({"leak_copy": "", "leak_exposed": "1", "source": "web+youtube"})  # a v1 key

@@ -7,7 +7,7 @@
 - sheet1.csv (question i, test and control rows mixed): row, case, evidence (the core-span image, input left);
 - sheet2.csv (question ii, test rows only): row, case, original (the fact-check's description, the manifest's
   `original` column), candidate (the candidate's frames alone), posted_at;
-- key.csv, never shown to the reviewer: row, case id, kind, edit, url, source, leak_exposed, control.
+- key.csv, never shown to the reviewer: row, case id, kind, edit, url, source, leak_exposed, leak_copy, control.
 Rows are shuffled and cases are given neutral labels (k01, k02, ...), so the sheets say nothing about which source
 found a row or which rows are controls. The reviewer answers `same`, `different` or `cannot tell` in an `answer`
 column. `score` reads both answer sheets and prints bar 1, bars 2a and 2b, and the secondary count.
@@ -32,7 +32,10 @@ def wilson(k, n, z=1.96):
 
 
 def passes_leak(row):
-    """Leak rule 2 per copy (Amendment A, change 3)."""
+    """Leak rule 2 per copy: trace's own leak_copy column when the run has it (eval/trace-v2.md, per source), else
+    Amendment A, change 3 of eval/trace.md."""
+    if row.get("leak_copy") in ("0", "1"):
+        return row["leak_copy"] == "0"
     return row["leak_exposed"] != "1" or bool({"channel", "youtube"} & set(row["source"].split("+")))
 
 
@@ -72,11 +75,12 @@ def sheets(run, manifest, inputs, out, seed=2910):
             s2.append({"row": rid, "case": label[case], "original": man[case].get("original", ""),
                        "candidate": f"img/{rid}_candidate.jpg", "posted_at": r["posted_at"], "answer": ""})
         key.append({"row": rid, "case": case, "kind": kind.get(case, {}).get("kind", ""), "edit": kind.get(case, {}).get("edit", ""),
-                    "url": r["url"], "source": r["source"], "leak_exposed": r["leak_exposed"], "control": int(control)})
+                    "url": r["url"], "source": r["source"], "leak_exposed": r["leak_exposed"], "leak_copy": r.get("leak_copy", ""),
+                    "control": int(control)})
     s2.sort(key=lambda x: x["row"])
     write(out / "sheet1.csv", s1, ["row", "case", "evidence", "answer"])
     write(out / "sheet2.csv", s2, ["row", "case", "original", "candidate", "posted_at", "answer"])
-    write(out / "key.csv", key, ["row", "case", "kind", "edit", "url", "source", "leak_exposed", "control"])
+    write(out / "key.csv", key, ["row", "case", "kind", "edit", "url", "source", "leak_exposed", "leak_copy", "control"])
     write(out / "cases.csv", [{"case": c, "kind": kind.get(c, {}).get("kind", "none"), "edit": kind.get(c, {}).get("edit", ""),
                                "intended": man[c].get("kind", "")} for c in sorted(man)], ["case", "kind", "edit", "intended"])
     return len(s1), len(s2)
