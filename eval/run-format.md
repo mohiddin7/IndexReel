@@ -213,7 +213,7 @@ One JSON object per line, appended and never edited:
 | `shown` | 1 on the earliest confirmed copy with `earlier` 1; at most one row per recording |
 
 - The claimed date of a recording is the earliest date in `--claimed-dates` (CSV `clip, claimed_date`) for its clips, else the earliest `posted_at` of its clips.
-- Search reads the clip and the recording's approved claims only (`claims.csv` rows with `status` `approved`).
+- Search reads only what the recording's clip shows. No claim, caption or post text goes into it: a claim may be false in its event, place or date, and searching for it pulls in material about the claimed event (`eval/trace.md`, Amendment A). The claims stay in `claims.csv` and on the page, beside the earliest copy.
 - Spark answers and YouTube searches are cached (`~/.cache/indexreel/trace`), so a rerun costs nothing. A Spark request is made only while enough of `--max-usd` is left for it; each candidate is verified only while $0.05 is left. The last lines are `trace: <n> candidates, <n> confirmed copies, <n> shown; spent $X now` and one `trace: <recording>: earliest confirmed copy <url> posted <time> on <platform>` per shown row.
 
 ## run.json

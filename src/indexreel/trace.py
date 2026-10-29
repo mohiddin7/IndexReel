@@ -55,17 +55,15 @@ COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id"
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
            "earlier", "leak_exposed", "shown"]
 
-QUERY_PROMPT = """You are shown one video and the claims its post made about it. Answer with JSON only, no other text.
-The claims may be the false part: the footage may be older or from somewhere else. So put no claimed event name, place or date in any query.
+QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
+The footage may be older than it seems or from somewhere else, so work only from what the video shows.
 1. Describe in one sentence what the video shows: the scene, the camera's view, the objects and the motion.
 2. Say who most likely filmed or first published footage like this (for example a space agency, a geological survey, a news agency, a storm chaser, a security camera, a tour operator), and give that organisation's YouTube handle if it is a well-known organisation with an official channel, else "".
 3. Write {n} short YouTube search queries that would reach the earliest upload of this footage: the visible content in plain words; the visible content with the likely source's name; the visible content with an earlier year or an earlier event of the same kind. If the video shows or speaks a language other than English, write one of the queries in that language.
-Return {{"description": "...", "source": "...", "handle": "@...", "queries": ["...", ...]}}.
-Claims: {claims}"""
+Return {{"description": "...", "source": "...", "handle": "@...", "queries": ["...", ...]}}."""
 
-SEARCH_PROMPT = """You are shown one video and the claims its post made about it. Use web search to find posts on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo that carry this same footage, above all the earliest uploads. The claims may be wrong (the footage may be older or filmed elsewhere), so also search for what is visible, without the claimed place or date. Do not use or cite fact-checking sites or web archives such as {domains}. Search at most {n} times.
-Answer with JSON only, no other text: {{"posts": [{{"url": "...", "why": "..."}}]}}, at most 10 posts, each a link to the post itself, not to an article about it.
-Claims: {claims}"""
+SEARCH_PROMPT = """You are shown one video. Use web search to find posts on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo that carry this same footage, above all the earliest uploads. The footage may be older than it seems or from somewhere else, so search from what the video shows. Do not use or cite fact-checking sites or web archives such as {domains}. Search at most {n} times.
+Answer with JSON only, no other text: {{"posts": [{{"url": "...", "why": "..."}}]}}, at most 10 posts, each a link to the post itself, not to an article about it."""
 
 
 def _on(host, site):
@@ -273,10 +271,9 @@ class Searcher:
             self.cache.put(key, hit)
         return hit["answer"], hit["hits"]
 
-    def candidates(self, clip, claims):
+    def candidates(self, clip):
         """([(source, query, url)] in fetch order, search hits, leak-exposed hits)."""
-        listed = "; ".join(claims) or "(none)"
-        ans, _ = self._spark("queries", clip, QUERY_PROMPT.format(n=QUERIES, claims=listed), False)
+        ans, _ = self._spark("queries", clip, QUERY_PROMPT.format(n=QUERIES), False)
         queries = [str(q) for q in ((ans or {}).get("queries") or []) if str(q).strip()][:QUERIES]
         handle = str((ans or {}).get("handle") or "").strip()
         handle = handle if re.fullmatch(r"@[A-Za-z0-9._-]{2,40}", handle) else None
@@ -289,7 +286,7 @@ class Searcher:
                     urls = self.search(q, PER_QUERY, h)
                     self.cache.put(key, {"urls": urls})
                 out += [("channel" if h else "youtube", q, u) for u in urls]
-        text = SEARCH_PROMPT.format(n=SEARCHES, claims=listed, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
+        text = SEARCH_PROMPT.format(n=SEARCHES, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
         ans, hits = self._spark("web", clip, text, True)
         web = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
         order, seen = [], set()
@@ -308,14 +305,6 @@ def claimed_dates(path):
     return {r["clip"]: r["claimed_date"][:10] for r in csv.DictReader(open(path, newline=""))} if path else {}
 
 
-def recording_claims(run, members, log=print):
-    f = Path(run) / "claims.csv"
-    if not f.exists():
-        return []
-    cited, text = withdraw.read_claims(f, log)
-    return [text[c] for c, clips in cited.items() if set(clips) & set(members) and text[c]]
-
-
 def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None, cache=None, fetcher=run_low,
                     matcher=cli.match, verifier=verify.verify, narrower=narrow, log=print):
     """trace.csv rows for one recording; candidates go to <run>/trace/<recording>/."""
@@ -328,7 +317,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     before = min([dates[m] for m in members if m in dates] or [p for p in posted if p] or [None])
     own = {((by_id[m].get("source") or {}).get("platform"), (by_id[m].get("source") or {}).get("post_id")) for m in members}
 
-    order, hits, leaks = searcher.candidates(str(src), recording_claims(run, members, log))
+    order, hits, leaks = searcher.candidates(str(src))  # what the clip shows only; the claims stay on the page
     work = run / "trace" / rec["id"]
     cdir = work / "clips"
     cdir.mkdir(parents=True, exist_ok=True)

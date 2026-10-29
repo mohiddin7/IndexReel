@@ -131,13 +131,13 @@ def test_an_unconfirmed_candidate_is_never_shown(tmp_path):
     assert not any(r["shown"] for r in rows) and {r["confirmed"] for r in rows if r.get("clip")} == {0}
 
 
-def test_only_approved_claims_reach_spark(tmp_path):
+def test_no_claim_reaches_the_search(tmp_path):
     spark = FakeSpark([])
     seen = []
     orig = spark.ask
     spark.ask = lambda clip, text, web: (seen.append(text), orig(clip, text, web))[1]
     go(tmp_path, spark, {}, {})
-    assert all("Semeru" in t and "Filmed today" not in t for t in seen)
+    assert len(seen) == 2 and all("Semeru" not in t and "today" not in t for t in seen)
 
 
 def test_the_inputs_own_post_is_not_a_copy(tmp_path):
@@ -163,7 +163,7 @@ def test_candidates_are_capped_and_a_rerun_is_free(tmp_path):
     assert rows[0]["source"] == "web" and rows[1]["source"] == "youtube"  # the sources alternate
     n = len(spark.calls)
     s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else CH.get(q, []), log=lambda *_: None)
-    s.candidates(str(tmp_path / "v.mp4"), ["Shows the Semeru eruption."])
+    s.candidates(str(tmp_path / "v.mp4"))
     assert len(spark.calls) == n and s.spent == 0.0
 
 
@@ -205,13 +205,13 @@ def test_a_named_channel_is_searched_and_comes_before_global_search(tmp_path):
             {"queries": ["lava river at night"], "handle": "@USGS"}, [], 0.01, "completed")
         s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else CH.get(q, []) if h == "@USGS" else [],
                            log=lambda *_: None)
-        order, _, _ = s.candidates(str(tmp_path / "v.mp4"), [])
+        order, _, _ = s.candidates(str(tmp_path / "v.mp4"))
         assert order[0] == ("channel", "lava river at night", "https://www.youtube.com/watch?v=official")
         assert [u for _, _, u in order[1:]] == YT["lava river at night"]
         spark.ask = lambda clip, text, web: orig(clip, text, web) if web else (
             {"queries": ["lava river at night"], "handle": "@x/../evil"}, [], 0.01, "completed")
         s2 = trace.Searcher(spark, verify.Cache(tmp_path / "cache2"), search=lambda q, n, h=None: [] if h else YT.get(q, []), log=lambda *_: None)
-        assert all(src != "channel" for src, _, _ in s2.candidates(str(tmp_path / "v.mp4"), [])[0])  # a bad handle is ignored
+        assert all(src != "channel" for src, _, _ in s2.candidates(str(tmp_path / "v.mp4"))[0])  # a bad handle is ignored
     finally:
         CH.clear()
 
