@@ -52,3 +52,16 @@ A pair is **merged automatically** when its effective band (`cluster.effective_b
 ## Limits
 
 These are 2 or 3 views, one phone and one person. A static view filmed minutes apart is the easiest form of this risk to film. Two different cameras at one spot, or a webcam stream, are not covered. With so few pairs this is a check of one failure mode, not a rate. Sound differs between takes and the judge may use it, so the result covers the pipeline with sound, as shipped. A silent pair would be harder.
+
+## Amendment 1 (Oct 28, before any clip exists: `data/sameview/` holds 0 files)
+
+The verify code in `18a42e4` crashes when a full-fidelity answer ends incomplete (the reasoning uses up `max_output_tokens`). That happened on the re-film arm (`eval/heldout2-refilm.md`, Addendum B). The fix is in `3ff95f6`: an incomplete or failed answer counts as no answer for that order and can never make a pair `same`. So this test now runs on the shipped pipeline at **`66a179b`**, which includes that fix. I change this before any clip exists, not after a crash.
+
+What differs from `18a42e4` in the pipeline, all committed before this amendment:
+
+- **verify:** the incomplete-answer fix (`3ff95f6`); `verify_reason` keeps whole sentences and has no doubled punctuation; a new `verify_same_event` column; a `--backend` option, left at its default `meta`. Prompts, effort, output caps, grouping, escalation and the decision rule are unchanged.
+- **matcher and clusters:** a merged pair that covers only part of both clips becomes `partial` (shared footage) instead of joining recordings (`a76f522`, `eval/partial.md`); evidence-image labels; the `claims` command (not used here). Bands, `merge_at` 0.55, `floor` 0.20, theta 0.9 and the SSCD model are unchanged.
+
+The run uses a detached checkout of `66a179b`, with `PYTHONPATH` set to its `src` for match, verify and the scorer, and `--sscd-model` given as an absolute path. The bars and the decision rule do not change. A pair whose effective band is `merged` counts as an automatic merge for bar 1, even if the matcher marks it `partial`, because a shared-footage link between two different recordings is also wrong. The report shows `partial` links separately.
+
+Note only, not tested or tuned here: on the re-film arm, the cheap judge missed portrait re-films by saying `different` or abstaining without naming a detail (`eval/report2-refilm.md`). Nothing in this test depends on that.
