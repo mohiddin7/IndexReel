@@ -2,6 +2,8 @@
 
 Protocol: `eval/sameplace.md`, frozen at `e948c78` before any WhatsApp copy was scored. Pipeline at `66a179b` (match, verify, clusters), run from a detached checkout. Scorer `scripts/sameview.py` at `e948c78`, with `--min-s 5`. The data is 15 handheld camera-roll clips by me in 6 groups (one place and sitting each, recorded minutes apart) and their 15 WhatsApp copies: 30 clips, 435 pairs. Run once, fresh cache, no human decisions. The manifest came from the footage step (copy matched to raw clip by duration and by eye) and was checked against the frozen groups before the run.
 
+**Disclosure (added after the run).** Before this run, a separate exploratory probe for other research decoded and scored the G1 to G6 clips with local-feature matching, sound sync and Spark questions. I started that probe's Spark requests while this test's matching was already running, and I did not read its answers. Nothing in match, verify, the clusters or the frozen settings was changed or tuned from it. When the protocol says I had not opened, decoded or scored any of the clips, that held for whoever ran this test, but not for the project as a whole. The result stands as FAIL.
+
 ## Verdict: FAIL on bar 1
 
 | | result | bar |
