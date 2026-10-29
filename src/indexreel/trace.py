@@ -586,8 +586,8 @@ def core_evidence(pdir, p, out, model=None):
     rows = []
     for t, tb, fa, fb in zip(ts, tbs, fas, fbs):
         left, right = cli.thumb(fa), cli.thumb(fb)
-        for img, name, at in ((left, ia, t), (right, ib, tb)):
-            cv2.putText(img, f"{name[:22]} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        for img, name, at in ((left, "input", t), (right, "candidate", tb)):  # no video id: a blind reviewer could look it up
+            cv2.putText(img, f"{name} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 75])

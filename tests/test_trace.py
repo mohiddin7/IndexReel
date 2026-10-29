@@ -606,3 +606,21 @@ def test_a_failed_date_read_is_not_cached(tmp_path):
     assert "https://x.com/u/status/9" not in s.notes  # unknown date: fetched, and the platform date decides later
     s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
     assert s.notes["https://x.com/u/status/9"] == "after_claim"  # read again on the rerun, not taken from the cache
+
+
+def test_evidence_labels_say_input_and_candidate_not_video_ids(tmp_path, monkeypatch):
+    import cv2
+    import numpy as np
+    pdir = tmp_path / "pair"
+    pdir.mkdir()
+    for name in ("input_x.mp4", "youtube_SECRETID.mp4"):
+        (pdir / name).symlink_to(tmp_path / name)
+    monkeypatch.setattr(trace, "frame_at", lambda path, t: np.full((90, 160, 3), 128, np.uint8))
+    drawn = []
+    real = cv2.putText
+    monkeypatch.setattr(cv2, "putText", lambda img, text, *a, **k: (drawn.append(text), real(img, text, *a, **k))[1])
+    p = {"a": "input_x", "b": "youtube_SECRETID", "core_a_start_s": "2", "core_a_end_s": "8", "core_b_start_s": "3",
+         "core_b_end_s": "9", "offset_s": "1", "mirrored": "0"}
+    assert trace.core_evidence(pdir, p, tmp_path / "core.jpg")
+    assert drawn and not any("SECRETID" in t or "input_x" in t for t in drawn)
+    assert {t.split()[0] for t in drawn} == {"input", "candidate"}
