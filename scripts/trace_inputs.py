@@ -36,7 +36,7 @@ HOSTS = ["www.youtube.com", "youtube.com", "youtu.be", "www.tiktok.com", "www.in
 
 def edits_for(rows):
     """{case: edit} for the kind b rows, EDITS in turn in case order."""
-    b = sorted(r["case"] for r in rows if r["kind"] == "b")
+    b = sorted((r["case"] for r in rows if r["kind"] == "b"), key=lambda c: (c.rstrip("0123456789"), int("0" + c.lstrip("abcdefghijklmnopqrstuvwxyz"))))  # t2 before t11
     return {c: EDITS[i % len(EDITS)] for i, c in enumerate(b)}
 
 

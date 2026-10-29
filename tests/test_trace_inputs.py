@@ -17,3 +17,8 @@ def test_flips_never_cancel_and_each_edit_is_in_the_filter():
     assert ti.vf("slow", True).count("hflip") == 1 and "setpts=2*PTS" in ti.vf("slow", False)
     assert "crop=iw*0.7:ih*0.7" in ti.vf("zoom", False) and "hflip" not in ti.vf("zoom", False)
     assert ti.vf("compilation", False) == ti.SCALE
+
+
+def test_case_order_is_numeric():
+    rows = [{"case": c, "kind": "b"} for c in ("t11", "t2", "t1", "t10")]
+    assert list(ti.edits_for(rows)) == ["t1", "t2", "t10", "t11"]
