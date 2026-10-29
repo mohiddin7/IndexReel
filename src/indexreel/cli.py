@@ -30,6 +30,7 @@ STAGES = [("fetch", "indexreel.fetch", "download the videos of posts you name"),
           ("verify", "indexreel.verify", "judge the unresolved pairs of a run"),
           ("claims", "indexreel.claims", "list the claims each post's caption makes about its footage"),
           ("withdraw", "indexreel.withdraw", "list the claims that lose video support when a recording is withdrawn"),
+          ("trace", "indexreel.trace", "look for earlier uploads of each recording on the web"),
           ("wall", "indexreel.wall", "open a run in a local browser page")]
 
 
