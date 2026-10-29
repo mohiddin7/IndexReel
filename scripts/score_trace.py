@@ -31,6 +31,9 @@ def wilson(k, n, z=1.96):
     return (max(0.0, c - h), min(1.0, c + h))
 
 
+CONTROL, TEST = ("c", "k"), ("t", "n")  # case id prefixes: eval/trace.md (c, t) and eval/trace-v2.md (k, n)
+
+
 def passes_leak(row):
     """Leak rule 2 per copy: trace's own leak_copy column when the run has it (eval/trace-v2.md, per source), else
     Amendment A, change 3 of eval/trace.md."""
@@ -69,7 +72,7 @@ def sheets(run, manifest, inputs, out, seed=2910):
         shutil.copy(run / r["evidence"], ev)
         img = cv2.imread(str(ev))
         cv2.imwrite(str(out / "img" / f"{rid}_candidate.jpg"), img[:, img.shape[1] // 2:])
-        control = case.startswith("c")
+        control = case.startswith(CONTROL)
         s1.append({"row": rid, "case": label[case], "evidence": f"img/{rid}_pair.jpg", "answer": ""})
         if not control:
             s2.append({"row": rid, "case": label[case], "original": man[case].get("original", ""),
@@ -103,7 +106,7 @@ def score(d, answers1, answers2, say=print):
     for kind in ("a", "b"):
         # a case without an input counts against the kind it was meant for (Bars, bar 2)
         meant = lambda c: c["intended"] if c["intended"] in ("a", "b") else "b"  # no input: (b) unless a re-upload was meant
-        n = [c["case"] for c in cases if c["case"].startswith("t") and (c["kind"] == kind or (c["kind"] == "none" and meant(c) == kind))]
+        n = [c["case"] for c in cases if c["case"].startswith(TEST) and (c["kind"] == kind or (c["kind"] == "none" and meant(c) == kind))]
         k = sum(c in found for c in n)
         need = math.ceil(0.4 * len(n))
         lo, hi = wilson(k, len(n))
@@ -112,7 +115,7 @@ def score(d, answers1, answers2, say=print):
         say(f"score: bar 2{kind}: found {k} of {len(n)}, need {need}, Wilson 95% {lo:.2f}-{hi:.2f}: "
             f"{'PASS' if out[kind] else 'FAIL'}{small}")
     say(f"score: secondary: found including leak-exposed recordings {len(found | found_leaky)} of "
-        f"{sum(c['case'].startswith('t') for c in cases)}")
+        f"{sum(c['case'].startswith(TEST) for c in cases)}")
     ok = not wrong and out["a"] and out["b"]
     say(f"score: bar 1: {len(wrong)} wrong statements: {'PASS' if not wrong else 'FAIL'}")
     say(f"score: run {'PASS' if ok else 'FAIL'}")

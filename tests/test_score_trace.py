@@ -78,3 +78,8 @@ def test_v2_runs_use_traces_leak_copy_column():
     assert st.passes_leak({"leak_copy": "0", "leak_exposed": "1", "source": "web"})  # e.g. web+ytapi in v2
     assert not st.passes_leak({"leak_copy": "1", "leak_exposed": "1", "source": "web"})
     assert st.passes_leak({"leak_copy": "", "leak_exposed": "1", "source": "web+youtube"})  # a v1 key
+
+
+def test_v2_case_ids_are_scored_like_v1_ones():
+    assert "k1".startswith(st.CONTROL) and "c1".startswith(st.CONTROL) and not "n1".startswith(st.CONTROL)
+    assert "n11".startswith(st.TEST) and "t1".startswith(st.TEST) and not "k1".startswith(st.TEST)
