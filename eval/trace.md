@@ -121,3 +121,46 @@ Written after the commit above and before any trace code existed. No dev or test
 - **(ii) Does the candidate show the earlier footage the fact-check describes?** The reviewer sees the candidate's frames, the fact-check's description of the original and the platform date, not the input. It may be any upload of that footage, not only the post the fact-check links. The answers are the same three. **`different` or `cannot tell` only means not found under bar 2.** A vague fact-check description is not a fault of the tool.
 
 A case is found when (i) and (ii) are both `same`, together with conditions (i) and (ii) of the found rule above (date and leak rule). For controls only question (i) is asked, and any earlier confirmed copy is a wrong statement, as before. The rest of the blind check is unchanged: rows are shuffled, test and control rows are mixed, and the sheet does not say which source found a row. Where this clarification and the paragraph "Blind same-recording check" differ, this clarification holds.
+
+## Amendment A (Oct 29 2026, after dev, before any test input)
+
+Written after the dev runs below. No test input has been fetched or made, and trace has not been run on any test case or control. Before the protocol was written I read the fact-check pages of all cases, test cases included, to choose them. Nothing found on those pages has been used to build or tune trace.
+
+### Frozen code and constants
+
+- Code at commit `a402bb5`: `src/indexreel/trace.py`, `scripts/trace_inputs.py`, and the matcher and verifier as they stand in that commit. Matcher settings are unchanged: `merge_at` 0.55, `floor` 0.20, theta 0.9, mirrored margin 0.02, one frame per second, SSCD sha256 `9f26bd4c848cc19b73d2ae92eea6e04886f61a7b764ceb7a13aeee62e6a6db56`.
+- Spark (`muse-spark-1.3`) sees the clip at 180 px. Query request: minimal reasoning effort, 3 queries. Web request: low effort, at most 3 searches, at most 10 posts.
+- YouTube: 5 results per query, both in global search and inside the channel Spark names.
+- At most 10 candidates per recording, taken in turn from web, channel and YouTube. Candidates are fetched at up to 360 px on the short side and must be no longer than 30 minutes.
+- Coarse pass: a candidate longer than 90 s is cut, before matching, to the stretch most like the input. The pass looks at one frame every 4 s; the cut keeps the input's length plus 15 s on each side of that stretch. Inside the cut the match runs at one frame per second as usual.
+- The input is matched and verified against each candidate on its own. Each candidate is verified only while $0.05 of the budget is left.
+
+### Changes from the protocol
+
+1. **Search reads only what the clip shows; no claim goes into it.** The protocol had search read the approved claims. A claim can be false in its event, its place or its date, and we cannot know which part. On dev, the Artemis case (d1) found an earlier copy in the runs without claims (2 of 2) and none in the run with claims. In that run, the claimed event name pulled the web search towards footage of the claimed mission. That is one case, and results vary between runs, so this is a reasoned choice, not a measured effect. Claims are still extracted and approved, and the page shows them beside the earliest copy.
+2. **A third source.** The same no-search Spark request that writes the YouTube queries also names the likely first source and, when it is a well-known organisation, its YouTube handle. The same queries then run inside that channel. Like the YouTube source, this cannot leak by construction.
+3. **Leak rule 2, per copy.** A post found by several sources lists all of them (`web+youtube`). A confirmed copy passes rule 2 when at least one of its sources is `channel` or `youtube`, or when its recording is not `leak_exposed`. The title words are matched as substrings, as frozen. On dev this flagged a song titled "...Falsehood" as a fact-check. That makes the rule stricter, never looser, and it stays.
+4. **Evidence for blind question (i)** is trace's own image: three aligned frame pairs from inside the pair's core span (`trace/<recording>/pairs/<clip>/core.jpg`). The matcher's image covers the whole aligned overlap, so on an edited input it can show non-matching rows.
+5. **Inputs.** For kind (a), the input keeps the re-upload's platform, post id and post time; its caption is replaced by the viral caption as the fact-check quotes it. For kind (b), I choose the segment of the earlier upload (start and end) from the fact-check's description and write it in the manifest before anything is run. The compilation edit puts the copy between two 6 s pieces of NASA's Artemis I re-entry video, which is public domain and unrelated to every test case. A flip edit on a copy that is already flipped flips it once, not back.
+6. **Controls c3 and c4** are fetched as kind (a): two of my own X test posts. A control must make a true claim that no earlier copy can come before, so its claimed date is the date its caption claims, not the date of the post. c3 is my own clip of an airshow, filmed on Meta glasses, with the caption date 2026-09-26. It is my original, so no earlier copy exists anywhere. c4 is an unedited USGS video of fissure 20 on Kīlauea, with the caption "May 19, 2018, about 3:45 AM HST", so its claimed date is 2018-05-19. Copies posted on or after that day are expected. Any copy shown with a date before it is a wrong statement.
+
+### Commands, in order, once
+
+1. Write `data/trace_test/manifest.csv` (case, kind, source, claimed_date, caption, flipped, start_s, end_s) for t1-t15 and c1-c4.
+2. `python scripts/trace_inputs.py data/trace_test/manifest.csv --out data/trace_test/in`
+3. `indexreel match data/trace_test/in --out data/trace_test/run`
+4. `python -m indexreel.claims data/trace_test/run`, then I approve or reject the rows. They are for the page only; search does not read them.
+5. `indexreel trace data/trace_test/run --claimed-dates data/trace_test/in/claimed_dates.csv --max-usd 3 --cache data/trace_test/cache`, with a new, empty cache.
+6. The two blind sheets and the score come from `trace.csv` through a scoring script written before step 5. FAIL rows are kept.
+
+### Dev runs (d1 Artemis, d2 Semeru, d7 Miyako, d10 Atami; inputs made with the same edits as kind b)
+
+| run | search input | d1 | d2 | d7 | d10 | wrong statements | cost |
+|---|---|---|---|---|---|---|---|
+| 1 | first prompts, 15-minute cap | not found | not found (the input was cut from a different recording of the same flow) | - | - | 0 | $0.78 |
+| 2 | clip only | only a later repost (not shown) | found, YouTube 2017-02-01 | not found | - | 0 | $0.16 |
+| 3 | clip only, 30-minute cap | found, YouTube 2025-12-11 | found | not found | - | 0 | $0.31 |
+| 4 | clip and approved claims | only later reposts (not shown) | found | not found | - | 0 | $0.49 |
+| 5 | clip only (frozen) | found, YouTube 2025-03-09 | found, but only through web search with a leak-exposed recording | not found | not found | 0 | $0.38 |
+
+Wrong statements were 0 in every run. Later reposts and look-alikes (another mission's re-entry, another camera on the same lava flow) were kept apart or not shown. d7 and d10 are the most recycled clips, and their web searches read fact-check pages every time: of the 4 recordings in run 5, 3 were `leak_exposed`. A test case like that can only be found through YouTube or channel search. Dev cost in total: $2.14.
