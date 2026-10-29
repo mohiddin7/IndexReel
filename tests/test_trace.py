@@ -302,7 +302,7 @@ def test_google_sources_and_a_leak_counted_per_source(tmp_path, monkeypatch):
     g = FakeGoogle(videos=[{"url": "https://www.youtube.com/watch?v=api", "posted_at": "2015-01-01T00:00:00Z"}],
                    pages=[{"url": "https://www.tiktok.com/@a/video/1", "title": "lava"},
                           {"url": "https://factcheck.afp.com/x", "title": "Fact check"}])
-    s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"]), google=g)
+    s = searcher(tmp_path, FakeSpark(["https://x.com/u/status/9"]), google=g, sources=trace.ALL_SOURCES)
     order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
     src = {u: x for x, _, u in order}
     assert src["https://www.youtube.com/watch?v=api"] == "ytapi" and src["https://www.tiktok.com/@a/video/1"] == "keyframe"
@@ -374,6 +374,24 @@ def test_vision_requests_stop_at_the_daily_cap_and_are_counted_on_disk(tmp_path,
     assert c["total"] == 2 and c["images"] == 2
     monkeypatch.setattr(trace, "keyframes", lambda clip: [b"frame"])
     said = []
-    s = searcher(tmp_path / "s", FakeSpark([]), google=g, log=said.append)
+    s = searcher(tmp_path / "s", FakeSpark([]), google=g, log=said.append, sources=trace.ALL_SOURCES)
     s.candidates(str(tmp_path / "s" / "v.mp4"))  # over the cap: the run goes on without the keyframe source
     assert any("keyframe source stopped" in m for m in said) and c["total"] == 2
+
+
+def test_keyframe_search_is_off_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(trace, "keyframes", lambda clip: [b"frame"])
+    g = FakeGoogle(pages=[{"url": "https://www.tiktok.com/@a/video/1", "title": "lava"}])
+    searcher(tmp_path, FakeSpark([]), google=g).candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert ("pages",) not in g.calls
+
+
+def test_a_failed_youtube_search_is_not_cached(tmp_path):
+    calls = []
+    def search(q, n, h=None):
+        calls.append(q)
+        return None if len(calls) == 1 else YT.get(q, [])
+    (tmp_path / "v.mp4").write_bytes(b"viral")
+    s = trace.Searcher(FakeSpark([]), verify.Cache(tmp_path / "cache"), search=search, log=lambda *_: None)
+    assert s.candidates(str(tmp_path / "v.mp4"))[0] == []
+    assert [u for _, _, u in s.candidates(str(tmp_path / "v.mp4"))[0]] == YT["lava river at night"]

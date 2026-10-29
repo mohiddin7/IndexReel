@@ -43,7 +43,7 @@ PLATFORMS = {"youtube", "x", "tiktok", "instagram", "facebook", "reddit", "vimeo
 MAX_CANDIDATES = 10
 SEARCHES = 3  # web searches Spark is asked to make at most
 QUERIES = 3  # YouTube queries
-PER_QUERY = 5
+PER_QUERY = 50  # results per YouTube query (yt-dlp and Data API); the pre-rank picks what is fetched
 SIZE = 360  # largest shorter side fetched
 MAX_S = 1800  # longest candidate fetched, seconds (the coarse pass keeps long ones cheap to match)
 COARSE_OVER = 90  # candidates longer than this (s) are first cut to the stretch a coarse pass flags
@@ -53,7 +53,9 @@ GUARD = {"web": 0.10, "queries": 0.03, "corroborate": 0.10}
 VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is left, and keep it in reserve  # stop before a call when less than this is left of --max-usd
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
 # eval/trace-v2.md: sources, their families, and the choices made before anything is downloaded
-SOURCES = ("web", "keyframe", "channel", "ytapi", "youtube")
+ALL_SOURCES = ("web", "keyframe", "channel", "ytapi", "youtube")  # taken in turn in this order
+# keyframe search is off: on dev it reached no known earlier upload (eval/trace-v2.md, Amendment B)
+SOURCES = ("web", "channel", "ytapi", "youtube")
 FAMILY = {"web": "web", "keyframe": "keyframe", "channel": "youtube", "ytapi": "youtube", "youtube": "youtube"}
 LEAKY = {"web", "keyframe"}  # sources that can read fact-check pages
 BY_DATE = False  # yt-dlp search sorted by upload date instead of relevance
@@ -154,7 +156,8 @@ def ytsearch(query, n=PER_QUERY, handle=None):
     """YouTube results [{url, duration}] for a query, through yt-dlp without downloading anything; inside one channel
     with handle. BY_DATE sorts global search by upload date, newest first."""
     target = (f"https://www.youtube.com/{handle}/search?query={quote(query)}" if handle
-              else f"ytsearch{'date' if BY_DATE else ''}{n}:{query}")
+              else f"https://www.youtube.com/results?search_query={quote(query)}&sp=CAI%3D" if BY_DATE  # upload date
+              else f"ytsearch{n}:{query}")
     r = subprocess.run(["yt-dlp", "--ignore-config", "--no-warnings", "--flat-playlist", "--playlist-end", str(n),
                         "--print", "%(url)s\t%(duration)s", "--", target], capture_output=True, text=True, timeout=300)
     out = []
@@ -162,7 +165,7 @@ def ytsearch(query, n=PER_QUERY, handle=None):
         url, _, d = ln.strip().partition("\t")
         if url.startswith("https://"):
             out.append({"url": url, "duration": float(d) if d not in ("", "NA", "None") else None})
-    return out
+    return out if out or r.returncode == 0 else None  # None: the search failed, so it is not cached
 
 
 class GoogleStop(Exception):
@@ -448,7 +451,10 @@ class Searcher:
         key = hashlib.sha256(json.dumps(key).encode()).hexdigest()
         hit = self.cache.get(key)
         if hit is None:
-            hit = {"v": fn()}
+            v = fn()
+            if v is None:  # failed: not cached, so a rerun tries again
+                return []
+            hit = {"v": v}
             self.cache.put(key, hit)
         return hit["v"] if "v" in hit else hit.get("urls")  # a YouTube search cached by v1 trace
 
@@ -472,13 +478,13 @@ class Searcher:
         queries = [str(q) for q in ((ans or {}).get("queries") or []) if str(q).strip()][:QUERIES]
         handle = str((ans or {}).get("handle") or "").strip()
         handle = handle if re.fullmatch(r"@[A-Za-z0-9._-]{2,40}", handle) else None
-        lists = {s: [] for s in SOURCES}
+        lists = {s: [] for s in ALL_SOURCES}
         info = {}  # url -> {duration, day} known from search
         for q in queries:
             for h, s in ((None, "youtube"), (handle, "channel")):
                 if s not in self.sources or (h is None and s == "channel"):
                     continue
-                key = ["ytsearch", PER_QUERY, q] + ([h] if h else []) + (["date"] if BY_DATE and not h else [])
+                key = ["ytsearch", PER_QUERY, q] + ([h] if h else []) + (["sp=CAI"] if BY_DATE and not h else [])
                 for it in self._cached(key, lambda: self.search(q, PER_QUERY, h)):
                     it = it if isinstance(it, dict) else {"url": it}
                     lists[s].append((s, q, it["url"]))
@@ -501,7 +507,7 @@ class Searcher:
             self.leaks["keyframe"] = leaky(pages)
             hits = hits + pages
         order, at = [], {}
-        srcs = [lists[s] for s in SOURCES]
+        srcs = [lists[s] for s in ALL_SOURCES]
         for i in range(max(map(len, srcs))):  # take the sources in turn
             for src in srcs:
                 if i < len(src):
