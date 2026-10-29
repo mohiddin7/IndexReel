@@ -198,7 +198,7 @@ One JSON object per line, appended and never edited:
 |---|---|
 | `recording` | recording id from `clusters.json` (after human decisions) |
 | `input` | the recording's clip that was searched for (its first member) |
-| `source` | `web` (Spark with web search), `keyframe` (Cloud Vision web detection on the input's keyframes), `channel` (YouTube search inside the channel Spark named as the likely first source), `ytapi` (YouTube Data API search for uploads before the claimed date) or `youtube` (YouTube search); every source that found the post, joined with `+` (for example `web+youtube`) |
+| `source` | `credit` (a post linked, or a YouTube channel named by @handle, in the description of a YouTube copy posted on or after the claimed date; a description that reads like a fact-check gives nothing), `web` (Spark with web search), `keyframe` (Cloud Vision web detection on the input's keyframes), `channel` (YouTube search inside the channel Spark named as the likely first source), `ytapi` (YouTube Data API search for uploads before the claimed date) or `youtube` (YouTube search); every source that found the post, joined with `+` (for example `web+youtube`) |
 | `query` | the YouTube query that found it; empty for `web` and `keyframe` |
 | `url` | the candidate post |
 | `platform`, `post_id`, `account`, `posted_at` | from the fetched post's sidecar (see Fetching posts); `posted_at` is the platform's own post time |
@@ -216,7 +216,7 @@ One JSON object per line, appended and never edited:
 | `claimed_date` | the recording's claimed date (see below), the same on every row of a recording; empty when none is known |
 | `leak_copy` | 1 when every source that found this post (web, keyframe) also returned a fact-checking page for this recording: the copy fails leak rule 2 (`eval/trace-v2.md`). Trace does not know which page led to a post, so this does not say the post was found through a fact-check |
 | `prerank` | SSCD similarity of YouTube's own preview frames of the post to the input's frames, used to order YouTube results before download; empty for posts not on YouTube |
-| `families` | the source families that found the post: `web`, `keyframe`, `youtube` (`channel`, `ytapi` and `youtube` together), joined with `+` |
+| `families` | the source families that found the post: `credit`, `web`, `keyframe`, `youtube` (`channel`, `ytapi` and `youtube` together), joined with `+` |
 | `strength` | on the shown row only: `strong` when two families found it, or when the date search below gives a date on or before its post date, cited by at least two sites; else `single-source` |
 | `corroborated_date` | on the shown row only: the date of the footage's event from a separate web search, when it counts as corroboration; else empty |
 | `corroboration_urls` | on the shown row only: the pages that search cited, separated by spaces. Fact-check pages may be among them; they never find candidates |

@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import time
+from collections import Counter
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -55,10 +56,12 @@ ENOUGH = 2  # confirmed earlier copies after which a recording's other candidate
 VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is left, and keep it in reserve  # stop before a call when less than this is left of --max-usd
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
 # eval/trace-v2.md: sources, their families, and the choices made before anything is downloaded
-ALL_SOURCES = ("web", "keyframe", "channel", "ytapi", "youtube")  # taken in turn in this order
+ALL_SOURCES = ("credit", "web", "keyframe", "channel", "ytapi", "youtube")  # taken in turn in this order
 # keyframe search is off: on dev it reached no known earlier upload (eval/trace-v2.md, Amendment B)
-SOURCES = ("web", "channel", "ytapi", "youtube")
-FAMILY = {"web": "web", "keyframe": "keyframe", "channel": "youtube", "ytapi": "youtube", "youtube": "youtube"}
+SOURCES = ("credit", "web", "channel", "ytapi", "youtube")
+FAMILY = {"web": "web", "keyframe": "keyframe", "channel": "youtube", "ytapi": "youtube", "youtube": "youtube",
+          "credit": "credit"}
+CREDIT_HANDLES, CREDIT_URLS = 3, 10  # at most this many channels searched and posts taken from later copies' credits
 LEAKY = {"web", "keyframe"}  # sources that can read fact-check pages
 BY_DATE = False  # yt-dlp search sorted by upload date instead of relevance
 PRERANK = True  # order YouTube results by SSCD on YouTube's own preview frames
@@ -290,7 +293,8 @@ class Google:
         for it in d.get("items", []):
             m = re.fullmatch(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", it.get("contentDetails", {}).get("duration") or "")
             secs = sum(int(x or 0) * k for x, k in zip(m.groups(), (86400, 3600, 60, 1))) if m else None
-            out[it["id"]] = {"day": day(it.get("snippet", {}).get("publishedAt")), "duration": secs}
+            out[it["id"]] = {"day": day(it.get("snippet", {}).get("publishedAt")), "duration": secs,
+                             "description": it.get("snippet", {}).get("description") or ""}
         return out
 
     def pages(self, jpegs):
@@ -728,6 +732,23 @@ def core_evidence(pdir, p, out, model=None):
     return True
 
 
+def arrange(lists):
+    """The sources' results taken in turn, in ALL_SOURCES order; a post found again lists every source that found it."""
+    order, at = [], {}
+    srcs = [lists[s] for s in ALL_SOURCES]
+    for i in range(max(map(len, srcs))):
+        for src in srcs:
+            if i < len(src):
+                s, q, u = src[i]
+                if u not in at:
+                    at[u] = len(order)
+                    order.append((s, q, u))
+                elif s not in order[at[u]][0].split("+"):
+                    s0, q0, _ = order[at[u]]
+                    order[at[u]] = (f"{s0}+{s}", q0 or q, u)
+    return order
+
+
 class Searcher:
     """The two sources with caching and a spending cap. spark and search are injectable for tests."""
 
@@ -776,6 +797,39 @@ class Searcher:
             self.log(f"trace: the {kind} source stopped for this run ({e})")
             return []
 
+    def _youtube_info(self, order):
+        """({video id: {day, duration, description}}, ids the API answered for) for the YouTube posts in order."""
+        ids = sorted({youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)})
+        known, asked = {}, set()
+        for i in range(0, len(ids), 50):
+            got = self._google("ytapi", ["videos+description", ids[i:i + 50]], lambda: self.google.video_info(ids[i:i + 50]))
+            if isinstance(got, dict):  # the API answered for these ids
+                known.update(got)
+                asked |= set(ids[i:i + 50])
+        return known, asked
+
+    def _credits(self, order, known, before, queries):
+        """Leads from the descriptions of copies posted on or after the claimed date: links to posts, and channels
+        named by @handle, searched with the same queries. A description that reads like a fact-check, or links to a
+        fact-checking site or web archive, gives nothing."""
+        urls, handles = [], []
+        for _, _, u in order:
+            v = known.get(youtube_id(u) or "") or {}
+            text = v.get("description") or ""
+            if not text or not v.get("day") or v["day"] < before:
+                continue
+            links = re.findall(r"https?://[^\s<>\"')\]]+", text)
+            if any(w in text.lower() for w in LEAK_WORDS) or any(excluded(x) for x in links):
+                continue
+            urls += [c for c in map(canonical, links) if post_url(c) and c != u]
+            handles += [h.rstrip(".-") for h in re.findall(r"(?<![\w.@])@([A-Za-z0-9._-]{3,30})", text)]  # not emails
+        out = [("credit", "", x) for x in dict.fromkeys(urls)][:CREDIT_URLS]
+        for h in [h for h, _ in Counter(handles).most_common(CREDIT_HANDLES)]:
+            for q in queries:
+                for it in self._cached(["ytsearch", PER_QUERY, q, "@" + h], lambda: self.search(q, PER_QUERY, "@" + h)):
+                    out.append(("credit", q, canonical(it["url"] if isinstance(it, dict) else it)))
+        return out
+
     def candidates(self, clip, before=None):
         """([(source, query, url)] in fetch order, search hits, leak-exposed hits). Also sets, for this call:
         self.leaks {source: leak-exposed hits}, self.notes {url: why it is not fetched}, self.scores {url: pre-rank}."""
@@ -816,18 +870,23 @@ class Searcher:
             lists["keyframe"] = [("keyframe", "", canonical(p["url"])) for p in pages if post_url(p.get("url"))]
             self.leaks["keyframe"] = leaky(pages)
             hits = hits + pages
-        order, at = [], {}
-        srcs = [lists[s] for s in ALL_SOURCES]
-        for i in range(max(map(len, srcs))):  # take the sources in turn
-            for src in srcs:
-                if i < len(src):
-                    s, q, u = src[i]
-                    if u not in at:
-                        at[u] = len(order)
-                        order.append((s, q, u))
-                    elif s not in order[at[u]][0].split("+"):  # found again: keep every source that found it
-                        s0, q0, _ = order[at[u]]
-                        order[at[u]] = (f"{s0}+{s}", q0 or q, u)
+        order = arrange(lists)
+        known, asked = {}, set()
+        if self.date_filter and before and "ytapi" in self.sources:  # YouTube dates from the Data API, not yt-dlp
+            known, asked = self._youtube_info(order)
+            if "credit" in self.sources:
+                lists["credit"] = self._credits(order, known, before, queries)
+                if lists["credit"]:
+                    order = arrange(lists)
+                    more, more_asked = self._youtube_info([o for o in order if youtube_id(o[2]) not in asked])
+                    known.update(more)
+                    asked |= more_asked
+        for _, _, u in order:
+            vid = youtube_id(u) or ""
+            if vid in known:
+                info.setdefault(u, {}).update({k: x for k, x in known[vid].items() if x is not None and k != "description"})
+            elif vid in asked:
+                self.notes[u] = "unavailable"  # the API does not return it: deleted or private
         if self.prerank and self.thumbs is not None:
             ids = {u: youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)}
             sc = self.thumbs.scores(clip, sorted(set(ids.values())))
@@ -835,20 +894,6 @@ class Searcher:
             # posts that cannot be pre-ranked (not on YouTube) keep their turn ahead of ranked ones; YouTube results
             # without preview frames to score go last
             order.sort(key=lambda o: -self.scores[o[2]] if o[2] in self.scores else (1.0 if youtube_id(o[2]) else -2.0))
-        if self.date_filter and before and "ytapi" in self.sources:  # YouTube dates from the Data API, not yt-dlp
-            ids = sorted({youtube_id(u) for _, _, u in order if post_url(u) and youtube_id(u)})
-            known, asked = {}, set()
-            for i in range(0, len(ids), 50):
-                got = self._google("ytapi", ["videos", ids[i:i + 50]], lambda: self.google.video_info(ids[i:i + 50]))
-                if isinstance(got, dict):  # the API answered for these ids
-                    known.update(got)
-                    asked |= set(ids[i:i + 50])
-            for _, _, u in order:
-                vid = youtube_id(u) or ""
-                if vid in known:
-                    info.setdefault(u, {}).update({k: x for k, x in known[vid].items() if x is not None})
-                elif vid in asked:
-                    self.notes[u] = "unavailable"  # the API does not return it: deleted or private
         kept = 0
         for _, _, u in order:
             if kept >= MAX_CANDIDATES or not post_url(u) or u in self.notes:
@@ -857,9 +902,9 @@ class Searcher:
             if d and d > MAX_S:
                 self.notes[u] = "too_long"
                 continue
-            if self.date_filter and before and self.meta is not None:
+            if self.date_filter and before:
                 dayv = (info.get(u) or {}).get("day")
-                if dayv is None:
+                if dayv is None and self.meta is not None:
                     m = self._cached(["meta", u], lambda: self.meta(u))
                     m = m if isinstance(m, dict) else {}
                     dayv, d = m.get("day"), m.get("duration")

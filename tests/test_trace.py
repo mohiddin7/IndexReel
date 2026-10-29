@@ -405,7 +405,8 @@ def test_youtube_dates_come_from_the_data_api_when_it_is_on(tmp_path, monkeypatc
     monkeypatch.setattr(g, "_call", lambda url, body=None: {"items": [
         {"id": "old", "snippet": {"publishedAt": "2017-02-02T00:00:00Z"}, "contentDetails": {"duration": "PT1M5S"}},
         {"id": "late", "snippet": {"publishedAt": "2022-01-01T00:00:00Z"}, "contentDetails": {"duration": "PT1H0M1S"}}]})
-    assert g.video_info(["old", "late"]) == {"old": {"day": "2017-02-02", "duration": 65}, "late": {"day": "2022-01-01", "duration": 3601}}
+    assert g.video_info(["old", "late"]) == {"old": {"day": "2017-02-02", "duration": 65, "description": ""},
+                                             "late": {"day": "2022-01-01", "duration": 3601, "description": ""}}
     monkeypatch.setattr(g, "videos", lambda q, before, n: [])
     metas = []
     s = searcher(tmp_path, FakeSpark([]), google=g, meta=lambda u: metas.append(u) or {})
@@ -697,3 +698,35 @@ def test_a_copy_whose_id_contradicts_its_date_is_never_shown_as_earlier(tmp_path
                     {"twitter_1520225905817403392": "merged"}, dates={"viral": "2021-12-05"})
     r = next(r for r in rows if r["url"].startswith("https://x.com"))
     assert r["date_check"] == "id_differs" and r["earlier"] == "" and r["shown"] == 0
+
+
+def _credit_searcher(tmp_path, description):
+    g = trace.Google("k")
+    g.videos = lambda q, before, n: []
+    g.video_info = lambda ids: {i: ({"day": "2022-01-01", "duration": 30, "description": description} if i == "late"
+                                    else {"day": "2017-01-01", "duration": 30, "description": ""}) for i in ids}
+    searched = []
+    def search(q, n, h=None):
+        searched.append(h)
+        return ["https://www.youtube.com/watch?v=chan1"] if h == "@OrigChannel" else ([] if h else YT.get(q, []))
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "v.mp4").write_bytes(b"viral")
+    s = trace.Searcher(FakeSpark([]), verify.Cache(tmp_path / "cache"), search=search, google=g, log=lambda *_: None)
+    return s, searched
+
+
+def test_credits_in_later_copies_lead_to_earlier_posts_and_channels(tmp_path):
+    s, searched = _credit_searcher(tmp_path, "Credit: https://www.tiktok.com/@orig/video/7000000000000000000?is_from_webapp=1 "
+                                             "via @OrigChannel. Contact me at someone@example.com")
+    order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    src = {u: x for x, _, u in order}
+    assert src["https://www.tiktok.com/@orig/video/7000000000000000000"] == "credit"
+    assert src["https://www.youtube.com/watch?v=chan1"] == "credit"
+    assert "@OrigChannel" in searched and "@example.com" not in searched and "@example" not in searched
+    assert s.notes["https://www.youtube.com/watch?v=late"] == "after_claim"  # the copy itself is still not fetched
+
+
+def test_a_description_that_reads_like_a_fact_check_gives_no_leads(tmp_path):
+    s, searched = _credit_searcher(tmp_path, "FACT CHECK: this is old. Original: https://www.tiktok.com/@orig/video/7000000000000000000 @OrigChannel")
+    order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
+    assert not any(x == "credit" for x, _, _ in order) and "@OrigChannel" not in searched
