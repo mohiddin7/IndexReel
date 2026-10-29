@@ -286,17 +286,22 @@ class Thumbs:
         import cv2
         import numpy as np
         from indexreel import sscd
+        from concurrent.futures import ThreadPoolExecutor
         out, sha = {}, verify.sha(clip)
+        keys = {vid: hashlib.sha256(json.dumps(["thumb", sha, vid]).encode()).hexdigest() for vid in ids}
+        todo = [vid for vid in ids if self.cache.get(keys[vid]) is None]
+        names = ("hq1", "hq2", "hq3", "hqdefault")
+        with ThreadPoolExecutor(16) as ex:
+            got = dict(zip(todo, ex.map(lambda v: [self._get(f"https://i.ytimg.com/vi/{v}/{n}.jpg") for n in names], todo)))
         for vid in ids:
-            key = hashlib.sha256(json.dumps(["thumb", sha, vid]).encode()).hexdigest()
+            key = keys[vid]
             hit = self.cache.get(key)
             if hit is None:
                 if self.net is None:
                     self.net = sscd.load(self.model)
                 if clip not in self.feats:
                     self.feats[clip] = np.vstack(sscd.clip_features(self.net, clip))
-                imgs = [cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR) for b in
-                        (self._get(f"https://i.ytimg.com/vi/{vid}/{n}.jpg") for n in ("hq1", "hq2", "hq3", "hqdefault")) if b]
+                imgs = [cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR) for b in got[vid] if b]
                 imgs = [i for i in imgs if i is not None]
                 hit = {"score": float((sscd.embed(self.net, imgs) @ self.feats[clip].T).max()) if imgs else None}
                 self.cache.put(key, hit)
