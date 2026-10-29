@@ -103,9 +103,11 @@ def score(d, answers1, answers2, say=print):
     key = {r["row1"]: r for r in read(d / "key.csv")}
     a1 = {r["row"]: r["answer"].strip().lower() for r in read(answers1)}
     a2 = {r["row"]: r["answer"].strip().lower() for r in read(answers2)}
-    wrong = [r for r in key if a1.get(r) != "same"]
+    # any earlier confirmed copy on a control is wrong (eval/trace.md, bar 1), whatever the reviewer answers
+    wrong = [r for r in key if key[r]["control"] == "1" or a1.get(r) != "same"]
     for r in wrong:
-        say(f"score: wrong statement {r} ({key[r]['case']}, {key[r]['url']}): question (i) answered {a1.get(r) or 'nothing'}")
+        why = "a control" if key[r]["control"] == "1" else f"question (i) answered {a1.get(r) or 'nothing'}"
+        say(f"score: wrong statement {r} ({key[r]['case']}, {key[r]['url']}): {why}")
     found, found_leaky = set(), set()
     for r, k in key.items():
         if k["control"] == "0" and a1.get(r) == "same" and a2.get(k["row2"]) == "same":

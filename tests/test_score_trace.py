@@ -64,18 +64,20 @@ def test_the_two_sheets_share_no_row_ids_labels_or_images(tmp_path):
 
 def test_score_counts_leaks_per_copy_and_fails_on_any_unclear_link(tmp_path):
     out, said = setup(tmp_path), []
+    line = lambda p: next(s for s in said if s.startswith(p))
     ok = st.score(out, answer(out, "sheet1.csv"), answer(out, "sheet2.csv"), say=said.append)
     # found: t1 (web, not leaky), t3 (leaky but also youtube), t4; not t2 (web only, leaky); t5, t6, t7 nothing
     # (t7 has no input and was listed as "none": it counts under b)
-    assert "score: bar 2a: found 1 of 2, need 1" in said[0] and "PASS" in said[0]
-    assert "score: bar 2b: found 2 of 5, need 2" in said[1] and "PASS" in said[1]
-    assert "including leak-exposed recordings 4 of 7" in said[2] and ok
+    assert "found 1 of 2, need 1" in line("score: bar 2a") and "PASS" in line("score: bar 2a")
+    assert "found 2 of 5, need 2" in line("score: bar 2b") and "PASS" in line("score: bar 2b")
+    assert "including leak-exposed recordings 4 of 7" in line("score: secondary") and not ok  # c1, a control, shows a copy
     said.clear()
     assert not st.score(out, answer(out, "sheet1.csv", c1="cannot tell"), answer(out, "sheet2.csv"), say=said.append)
     assert any(s.startswith("score: wrong statement") and "c1" in s for s in said)
     said.clear()
     st.score(out, answer(out, "sheet1.csv"), answer(out, "sheet2.csv", t4="cannot tell", t3="different"), say=said.append)
-    assert "found 0 of 5" in said[1] and "FAIL" in said[1] and not any(s.startswith("score: wrong statement") for s in said)
+    assert "found 0 of 5" in line("score: bar 2b") and "FAIL" in line("score: bar 2b")
+    assert [s for s in said if s.startswith("score: wrong statement")] == [line("score: wrong statement")]  # only c1
 
 
 def test_wilson():
@@ -92,3 +94,9 @@ def test_v2_runs_use_traces_leak_copy_column():
 def test_v2_case_ids_are_scored_like_v1_ones():
     assert "k1".startswith(st.CONTROL) and "c1".startswith(st.CONTROL) and not "n1".startswith(st.CONTROL)
     assert "n11".startswith(st.TEST) and "t1".startswith(st.TEST) and not "k1".startswith(st.TEST)
+
+
+def test_any_earlier_copy_on_a_control_is_a_wrong_statement_even_if_judged_same(tmp_path):
+    out, said = setup(tmp_path), []
+    ok = st.score(out, answer(out, "sheet1.csv"), answer(out, "sheet2.csv"), say=said.append)
+    assert not ok and any(s.startswith("score: wrong statement") and "c1" in s for s in said)
