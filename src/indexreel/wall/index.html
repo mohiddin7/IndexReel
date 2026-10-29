@@ -315,8 +315,10 @@ function traceCard(id, t) {
   let head;
   if (shown) {
     const img = shown.evidence ? `<img src="${shown.evidence.split("/").map(encodeURIComponent).join("/")}" alt="three aligned frame pairs, this recording on the left and the earlier copy on the right">` : `<div class="noimg muted small">no evidence image</div>`;
+    const input = (S.clips.find((c) => c.id === members[0]) || {}).source || {}, credit = input.credit ? `Credit: ${esc(input.credit)}. ` : "";
+    const by = shown.account ? ` by @${esc(String(shown.account).replace(/^@/, ""))}` : "";
     head = `<div><strong>Earliest confirmed copy found:</strong> ${copyLine(shown)}</div>
-      <div class="pair"><div>${img}</div><div>
+      <div class="pair"><div>${img}<div class="small muted">${credit}Copy posted${by}${shown.platform ? ` on ${esc(shown.platform)}` : ""}. This recording on the left, the copy on the right.</div></div><div>
         <div class="small muted">What that copy's own post says</div>${shown.caption ? `<q class="small">${esc(shown.caption)}</q>` : `<div class="small muted">no caption</div>`}
         <div class="small muted" style="margin-top:8px">Claims approved for this recording today</div>
         ${claims.length ? `<ul class="claims small">${claims.map((r) => `<li><strong>${esc(r.claim_id)}</strong> ${esc(r.claim_text)}</li>`).join("")}</ul>` : `<div class="small muted">none approved</div>`}

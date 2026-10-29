@@ -782,3 +782,8 @@ def test_trace_reads_claimed_date_and_leak_copy_when_the_columns_exist(run):
     t = wall.read_trace(run)
     assert t["r1"]["claimed"] == "2018-01-01" and t["r2"]["claimed"] == ""
     assert [c["leak_copy"] for c in t["r1"]["copies"]] == [True, False]
+
+
+def test_the_trace_credit_line_names_the_poster_and_uses_the_inputs_own_credit_key():
+    js = wall.PAGE.read_text().split("function traceCard")[1].split("function traceBox")[0]
+    assert "input.credit" in js and "Copy posted" in js and "Credit: " in js
