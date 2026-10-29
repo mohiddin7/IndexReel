@@ -473,3 +473,15 @@ def test_the_input_is_always_on_the_left_of_the_evidence(tmp_path, monkeypatch):
     trace.input_left(tmp_path / "m.png", p, tmp_path / "m2.png")
     m2 = cv2.imread(str(tmp_path / "m2.png"))
     assert m2[:, :80].mean() > 200 and m2[:, 80:].mean() < 50
+
+
+def test_evidence_orientation_comes_from_the_pixels_not_the_matchers_flag(tmp_path):
+    import subprocess
+    import cv2
+    v = tmp_path / "m.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "mandelbrot=s=320x240:rate=5", "-t", "4", "-pix_fmt",
+                    "yuv420p", str(v)], check=True)
+    frames = [trace.frame_at(v, t) for t in (1.0, 2.0, 3.0)]
+    zoomed = [cv2.resize(f[20:220, 30:290], (320, 240)) for f in frames]  # a cropped, rescaled copy of the same frames
+    assert trace.mirrored([f[:, ::-1].copy() for f in frames], zoomed)  # the input is a mirror image of the candidate
+    assert not trace.mirrored(frames, zoomed)

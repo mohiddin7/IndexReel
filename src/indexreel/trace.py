@@ -456,6 +456,46 @@ def best_match_times(model, frames, path, b0, b1, step=0.5):
     return [cand[i][0] for i in idx] if idx else None
 
 
+def _inliers(a, b, orb, bf):
+    """ORB matches between two frames that survive a RANSAC homography."""
+    import cv2
+    import numpy as np
+    ka, da = orb.detectAndCompute(cv2.cvtColor(a, cv2.COLOR_BGR2GRAY), None)
+    kb, db = orb.detectAndCompute(cv2.cvtColor(b, cv2.COLOR_BGR2GRAY), None)
+    if da is None or db is None or len(ka) < 8 or len(kb) < 8:
+        return 0
+    good = [m for m, n in (x for x in bf.knnMatch(da, db, k=2) if len(x) == 2) if m.distance < 0.75 * n.distance]
+    if len(good) < 8:
+        return 0
+    src = np.float32([ka[m.queryIdx].pt for m in good])
+    dst = np.float32([kb[m.trainIdx].pt for m in good])
+    _, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+    return int(mask.sum()) if mask is not None else 0
+
+
+def _corr(a, b):
+    """Pixel correlation of two frames at a common small size, grey."""
+    import cv2
+    import numpy as np
+    g = [cv2.resize(cv2.cvtColor(x, cv2.COLOR_BGR2GRAY), (64, 36)).astype(float).ravel() for x in (a, b)]
+    g = [x - x.mean() for x in g]
+    d = np.linalg.norm(g[0]) * np.linalg.norm(g[1])
+    return float(g[0] @ g[1] / d) if d else 0.0
+
+
+def mirrored(ins, cands):
+    """True when the input frames match the candidate frames better mirrored than as they are. SSCD hardly tells a
+    frame from its mirror image, so the evidence image decides with ORB matches that survive RANSAC, and with pixel
+    correlation when neither orientation gives enough of them."""
+    import cv2
+    orb, bf = cv2.ORB_create(1000), cv2.BFMatcher(cv2.NORM_HAMMING)
+    plain = sum(_inliers(a, b, orb, bf) for a, b in zip(ins, cands))
+    flip = sum(_inliers(a[:, ::-1].copy(), b, orb, bf) for a, b in zip(ins, cands))
+    if max(plain, flip) >= 15 and plain != flip:
+        return flip > plain
+    return sum(_corr(a[:, ::-1].copy(), b) for a, b in zip(ins, cands)) > sum(_corr(a, b) for a, b in zip(ins, cands))
+
+
 def from_input(p):
     """The pair as seen from the input: (input id, candidate id, input core span, candidate core span, offset k with
     candidate time = input time + k). The matcher orders a pair by sorted id, and some platforms sort before
@@ -498,15 +538,16 @@ def core_evidence(pdir, p, out, model=None):
     fas = [frame_at(path[ia], t) for t in ts]
     if any(f is None for f in fas):
         return False
-    fas = [f[:, ::-1] if p.get("mirrored") == "1" else f for f in fas]
     tbs = [t + k for t in ts]
     if model is not None and core_cand:
         tbs = best_match_times(model, fas, path[ib], *core_cand) or tbs
+    fbs = [frame_at(path[ib], tb) for tb in tbs]
+    if any(f is None for f in fbs):
+        return False
+    if mirrored(fas, fbs):  # the matcher's `mirrored` flag comes from SSCD and is not reliable for this
+        fas = [f[:, ::-1].copy() for f in fas]
     rows = []
-    for t, tb, fa in zip(ts, tbs, fas):
-        fb = frame_at(path[ib], tb)
-        if fb is None:
-            return False
+    for t, tb, fa, fb in zip(ts, tbs, fas, fbs):
         left, right = cli.thumb(fa), cli.thumb(fb)
         for img, name, at in ((left, ia, t), (right, ib, tb)):
             cv2.putText(img, f"{name[:22]} {at:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
