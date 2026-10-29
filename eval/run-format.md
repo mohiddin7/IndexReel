@@ -188,6 +188,34 @@ One JSON object per line, appended and never edited:
 - One request covers every caption of the run, at minimal reasoning effort and at most 4,000 output tokens. It is made only if its worst case (every output token used) is within `--max-usd`; otherwise nothing is written. It is made once: an answer that does not complete (for example cut off at the token cap) ends with `claims: the request ended <status>, cost ...; no claims written, nothing cached` and is not asked again. The answer is cached by model, prompt and captions (`~/.cache/indexreel/claims`), so a rerun costs nothing and needs no key. The last line is `claims: spent $X now; the answer used cost $Y at list prices`.
 - `withdraw` (the command and the wall page alike) counts only rows with `status` `approved` when the sheet has a `status` column, and says how many rows it skipped; a hand-written sheet without the column counts every row. Approval is per row: a claim cited by two posts is supported only through its approved rows.
 
+## trace.csv
+
+`indexreel trace <run dir> [--claimed-dates FILE] [--max-usd 1]` looks for earlier uploads of each recording and writes `trace.csv`, one row per candidate post, plus a work folder `trace/<recording>/`. The rules it follows are in `eval/trace.md`. It never says a claim is true or false.
+
+| column | meaning |
+|---|---|
+| `recording` | recording id from `clusters.json` (after human decisions) |
+| `input` | the recording's clip that was searched for (its first member) |
+| `source` | `web` (Spark with web search), `channel` (YouTube search inside the channel Spark named as the likely first source) or `youtube` (YouTube search) |
+| `query` | the YouTube query that found it; empty for `web` |
+| `url` | the candidate post |
+| `platform`, `post_id`, `account`, `posted_at` | from the fetched post's sidecar (see Fetching posts); `posted_at` is the platform's own post time |
+| `fetch` | `ok`, `error <code>` (codes as in Fetching posts), `excluded` (a fact-checking site or web archive), `not_a_post` (not a post on YouTube, X, TikTok, Instagram, Facebook, Reddit or Vimeo), `over_cap` (more than 10 candidates), `same_post_as_input` |
+| `clip` | the fetched candidate's id in `trace/<recording>/clips/` |
+| `duration_s` | the fetched video's length |
+| `cut_start_s`, `cut_end_s`, `coarse` | for a candidate longer than 90 s: the stretch it was cut to before matching (a coarse pass at one frame every 4 s finds the stretch most like the input, plus the input's length and 15 s on each side) and the coarse pass's best cosine; empty otherwise. Times in the evidence are relative to the cut |
+| `band` | the effective band of the pair (input, candidate), from `indexreel match` and the verify stage run on those two clips alone (`trace/<recording>/pairs/<clip>/run/`) |
+| `verify_verdict` | the verifier's verdict on that pair, empty when it was not asked |
+| `evidence` | the pair's evidence image, relative to the run directory |
+| `confirmed` | 1 when `band` is `merged`, else 0 |
+| `earlier` | 1 when the platform dates the post on a UTC day before the claimed date, 0 when not; empty when the post has no platform date (yt-dlp's generic extractor or no date) or no claimed date is known |
+| `leak_exposed` | 1 when any web search hit for this recording was on a fact-checking site or web archive, or had a fact-check title (`trace/<recording>/search_hits.json` lists them) |
+| `shown` | 1 on the earliest confirmed copy with `earlier` 1; at most one row per recording |
+
+- The claimed date of a recording is the earliest date in `--claimed-dates` (CSV `clip, claimed_date`) for its clips, else the earliest `posted_at` of its clips.
+- Search reads the clip and the recording's approved claims only (`claims.csv` rows with `status` `approved`).
+- Spark answers and YouTube searches are cached (`~/.cache/indexreel/trace`), so a rerun costs nothing. A Spark request is made only while enough of `--max-usd` is left for it; each candidate is verified only while $0.05 is left. The last lines are `trace: <n> candidates, <n> confirmed copies, <n> shown; spent $X now` and one `trace: <recording>: earliest confirmed copy <url> posted <time> on <platform>` per shown row.
+
 ## run.json
 
 `{"version": 1, "command": "...", "created_utc": "...", "git_commit": "...", "n_clips": 8, "sample": "1 frame per second", "thresholds": {"merge_at": ..., "floor": ...}, "localiser": {"method": "opencv", "theta": 0.9}, "sscd_model_sha256": "..."}`
