@@ -164,3 +164,15 @@ Written after the dev runs below. No test input has been fetched or made, and tr
 | 5 | clip only (frozen) | found, YouTube 2025-03-09 | found, but only through web search with a leak-exposed recording | not found | not found | 0 | $0.38 |
 
 Wrong statements were 0 in every run. Later reposts and look-alikes (another mission's re-entry, another camera on the same lava flow) were kept apart or not shown. d7 and d10 are the most recycled clips, and their web searches read fact-check pages every time: of the 4 recordings in run 5, 3 were `leak_exposed`. A test case like that can only be found through YouTube or channel search. Dev cost in total: $2.14.
+
+## Clarification 2 (Oct 29 2026, before any test input)
+
+Written after Amendment A. No test input had been fetched, made or run through any part of trace.
+
+- **Claimed dates.** A test case's claimed date is the date of the viral post the fact-check quotes. Where the fact-check gives no date, it is the start of the claimed event. A control's claimed date is the start of the event its caption names. Three dates in the Cases tables change:
+  - t1: from 2022-12-01 to **2022-11-27**. The fact-check gives no date for the viral post, and the Mauna Loa eruption began on 2022-11-27.
+  - t2: from 2023-11-21 (the fact-check's publication date) to **2023-11-15**, the date of the earliest live viral post linked from the fact-check.
+  - c2: from 2025-01-09 (the date of AFP's article) to **2025-01-07**, when the Eaton Fire began. The deer clip's first upload is dated 2025-01-08, so with the old date a correct find would have counted as a wrong statement.
+  The two test-case changes are stricter, because later reposts can no longer count as earlier copies. The control change makes the date correct. The other dates stand: c1 2022-09-28, c3 2026-09-26, c4 2018-05-19.
+- **Kind (a) inputs.** A kind (a) input is a live post linked from the case's own fact-check page and dated on or after the claimed date. This gives t3 (an X post of 2024-09-26) and t10 (the viral X post itself, 2025-07-30). Every other test case is kind (b). Where the earlier upload named by the fact-check can no longer be fetched, there is no input, and the case is scored as not found under (b). This applies to t6 (the TikTok post is deleted) and t8 (the TikTok post is known only from an archive link); t12 has no input if the agency report no longer carries the video. Controls: c1 is the earliest known post of the shark video (an X post of 2022-09-28), c2 is the broadcaster's upload of 2025-01-08, and c3 and c4 are as in Amendment A.
+- **Code.** `scripts/trace_inputs.py` at `c985aac` sorted case ids as text, so t11 came before t2. Commit `c985aac` assigns the edits in numeric test-id order, as the protocol says. Nothing else changes; `src/indexreel/trace.py` is as in `a402bb5`.
