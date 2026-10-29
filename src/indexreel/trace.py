@@ -306,6 +306,15 @@ def canonical(url):
     return p._replace(query=urlencode(q), fragment="").geturl()
 
 
+def trim_bars(img, dark=16):
+    """The image without black bars along its edges (rows and columns whose brightest pixel is below `dark`)."""
+    g = img.max(axis=2) if img.ndim == 3 else img
+    rows, cols = (g >= dark).any(axis=1).nonzero()[0], (g >= dark).any(axis=0).nonzero()[0]
+    if not len(rows) or not len(cols):
+        return img
+    return img[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1]
+
+
 class Thumbs:
     """Pre-rank: SSCD of YouTube's own preview frames of a video against the input's frames (plain and mirrored)."""
 
@@ -340,7 +349,7 @@ class Thumbs:
                 if clip not in self.feats:
                     self.feats[clip] = np.vstack(sscd.clip_features(self.net, clip))
                 imgs = [cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR) for b in got[vid] if b]
-                imgs = [i for i in imgs if i is not None]
+                imgs = [trim_bars(i) for i in imgs if i is not None]  # portrait videos come letterboxed
                 if not imgs:  # nothing downloaded: no score, and not cached, so a rerun tries again
                     out[vid] = None
                     continue

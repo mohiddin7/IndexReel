@@ -624,3 +624,14 @@ def test_evidence_labels_say_input_and_candidate_not_video_ids(tmp_path, monkeyp
     assert trace.core_evidence(pdir, p, tmp_path / "core.jpg")
     assert drawn and not any("SECRETID" in t or "input_x" in t for t in drawn)
     assert {t.split()[0] for t in drawn} == {"input", "candidate"}
+
+
+def test_letterbox_bars_are_trimmed_before_the_pre_rank():
+    import numpy as np
+    rng = np.random.default_rng(0)
+    pic = rng.integers(40, 255, (300, 160, 3), dtype=np.uint8)  # a portrait picture
+    boxed = np.zeros((360, 480, 3), np.uint8)
+    boxed[30:330, 160:320] = pic  # inside black bars, as YouTube's preview frames show portrait videos
+    assert trace.trim_bars(boxed).shape == pic.shape
+    assert trace.trim_bars(pic).shape == pic.shape
+    assert trace.trim_bars(np.zeros((90, 160, 3), np.uint8)).shape == (90, 160, 3)  # all black: left as is
