@@ -58,6 +58,45 @@ def read_audit(run):
     return [json.loads(line) for line in p.read_text().splitlines() if line.strip()] if p.exists() else []
 
 
+TRACE_ID = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def read_trace(run):
+    """The earlier-copy search of a run (trace.csv, eval/run-format.md) as {recording: {searched, leak, claimed, copies}}, or None.
+
+    searched = rows whose fetch was ok. copies = the confirmed rows, each with its caption from the fetch sidecar and its
+    evidence image when that is a file under trace/. Every field comes from the web, so the page shows it as text."""
+    run = Path(run)
+    f = run / "trace.csv"
+    if not f.is_file():
+        return None
+    with open(f, newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    root = (run / "trace").resolve()
+    out = {}
+    for r in rows:
+        rec = out.setdefault(r["recording"], {"searched": 0, "leak": False, "claimed": "", "copies": []})
+        rec["searched"] += r["fetch"] == "ok"
+        rec["leak"] |= r.get("leak_exposed") == "1"
+        rec["claimed"] = rec["claimed"] or r.get("claimed_date") or ""
+        if r["confirmed"] != "1":
+            continue
+        caption, clip = "", r["clip"]
+        if TRACE_ID.fullmatch(r["recording"]) and TRACE_ID.fullmatch(clip):
+            side = root / r["recording"] / "clips" / f"{clip}.source.json"
+            try:
+                caption = str(json.loads(side.read_text()).get("caption") or "")[:600]
+            except (OSError, ValueError):
+                pass
+        img = (run / r["evidence"]).resolve() if r["evidence"] else None
+        rec["copies"].append({
+            "clip": clip, "url": r["url"], "platform": r["platform"], "account": r["account"], "posted_at": r["posted_at"],
+            "source": r["source"], "earlier": r["earlier"] or None, "shown": r["shown"] == "1",
+            "via_factcheck": r.get("via_factcheck") == "1", "caption": caption,
+            "evidence": r["evidence"] if img and img.is_file() and img.is_relative_to(root) else ""})
+    return out
+
+
 def append_audit(run, pair, action, note="", clip=None, claim=None):
     """Append one human decision to audit.jsonl and return it. The file is never rewritten.
 
@@ -181,6 +220,11 @@ def export(run, out, claims=None, results=None):
                 raise ValueError(f"evidence image of {p['id']} is not a file under frames/: {p['evidence']}")
             (out / p["evidence"]).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, out / p["evidence"])
+    for rec in (s["trace"] or {}).values():
+        for c in rec["copies"]:
+            if c["evidence"]:
+                (out / c["evidence"]).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(run / c["evidence"], out / c["evidence"])
     data = json.dumps({"state": s, "withdraw": views}).replace("</", "<\\/")  # "<\/" is still valid JSON, and cannot close the script tag
     page = PAGE.read_text().replace('content="live"', 'content="recorded"')
     out.mkdir(parents=True, exist_ok=True)
@@ -232,7 +276,7 @@ def state(run, claims=None, results=None):
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
     claim_rows, claim_review = read_claim_rows(claims) if claims is not None else (None, False)
-    return {"run": meta, "claims": claims is not None, "claim_rows": claim_rows, "claim_review": claim_review, "results": read_results(results) if results else None, "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
+    return {"run": meta, "claims": claims is not None, "claim_rows": claim_rows, "claim_review": claim_review, "results": read_results(results) if results else None, "trace": read_trace(run), "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -298,6 +342,10 @@ class Handler(BaseHTTPRequestHandler):
             f, root = (run / path[1:]).resolve(), (run / "frames").resolve()
             if f.is_file() and f.is_relative_to(root):
                 return self.reply(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+        if path.startswith("/trace/") and path.endswith(".jpg"):  # evidence images of the earlier-copy search
+            f, root = (run / path[1:]).resolve(), (run / "trace").resolve()
+            if f.is_file() and f.is_relative_to(root):
+                return self.reply(200, f.read_bytes(), "image/jpeg")
         self.reply(404, {"error": "not found"})
 
     def json_body(self):

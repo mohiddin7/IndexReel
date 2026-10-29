@@ -708,3 +708,67 @@ def test_the_page_and_the_terminal_count_the_same_claims(run, sheet, tmp_path):
         theirs = withdraw.withdraw(withdraw.run_recordings(run), by_claim, "r1")
         assert {k: [e["claim_id"] for e in out[k]] for k in ("lost", "kept", "undecided")} == {k: [e["claim_id"] for e in theirs[k]] for k in ("lost", "kept", "undecided")}
         assert out["unaffected"] == theirs["unaffected"]
+
+
+TRACE_HEAD = "recording,input,source,query,url,platform,post_id,account,posted_at,fetch,clip,duration_s,cut_start_s,cut_end_s,coarse,band,verify_verdict,evidence,confirmed,earlier,leak_exposed,shown"
+
+
+def trace_run(run, extra=""):
+    """A trace.csv over the fixture run: r1 has an earliest copy (shown) and a later one, r2 found nothing."""
+    rows = [
+        "r1,a_orig,web,,https://example.org/v/1,youtube,1,acct1,2017-12-07T08:05:07Z,ok,cand1,10,,,,merged,same,trace/r1/pairs/cand1/core.jpg,1,1,1,1",
+        "r1,a_orig,youtube,q,https://example.org/v/2,youtube,2,acct2,2018-01-02T00:00:00Z,ok,cand2,10,,,,merged,same,../../etc/passwd,1,0,1,0",
+        "r1,a_orig,web,,javascript:alert(1),,,,,error other,,,,,,,,,0,,1,0",
+        "r2,b_cam1,web,,https://example.org/v/3,youtube,3,acct3,2019-01-01T00:00:00Z,ok,cand3,10,,,,apart,,,0,1,0,0",
+    ]
+    (run / "trace.csv").write_text("\n".join([TRACE_HEAD] + rows) + "\n")
+    for rec, clip, cap in (("r1", "cand1", "<b>hi</b> " + "x" * 700), ("r1", "cand2", "later copy")):
+        (run / "trace" / rec / "clips").mkdir(parents=True, exist_ok=True)
+        (run / "trace" / rec / "clips" / f"{clip}.source.json").write_text(json.dumps({"caption": cap}))
+    (run / "trace" / "r1" / "pairs" / "cand1").mkdir(parents=True)
+    (run / "trace" / "r1" / "pairs" / "cand1" / "core.jpg").write_bytes(b"\xff\xd8jpeg")
+    (run / "secret.jpg").write_bytes(b"nope")
+
+
+def test_trace_is_none_without_a_trace_csv(run):
+    assert wall.read_trace(run) is None and wall.state(run)["trace"] is None
+
+
+def test_trace_reads_copies_captions_and_counts_only_fetched_posts(run):
+    trace_run(run)
+    t = wall.read_trace(run)
+    assert t["r1"]["searched"] == 2 and t["r2"]["searched"] == 1 and t["r1"]["leak"] and not t["r2"]["leak"]
+    first, later = t["r1"]["copies"]
+    assert first["shown"] and first["earlier"] == "1" and len(first["caption"]) == 600 and first["evidence"] == "trace/r1/pairs/cand1/core.jpg"
+    assert not later["shown"] and later["earlier"] == "0" and later["caption"] == "later copy"
+    assert later["evidence"] == ""  # a path that leaves trace/ is not an evidence image
+    assert t["r2"]["copies"] == []  # a candidate that was not confirmed is not listed
+
+
+def test_trace_served_over_http_only_from_inside_trace(run):
+    trace_run(run)
+    srv = wall.make_server(run)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert call(srv, "GET", "/trace/r1/pairs/cand1/core.jpg") == (200, b"\xff\xd8jpeg")
+        assert call(srv, "GET", "/trace/../secret.jpg")[0] == 404
+        assert call(srv, "GET", "/trace/%2e%2e/secret.jpg")[0] == 404
+        assert json.loads(call(srv, "GET", "/api/state")[1])["trace"]["r1"]["copies"][0]["shown"]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_trace_export_carries_the_section_and_its_images(run, tmp_path):
+    trace_run(run)
+    out, page, data = exported(run, tmp_path)
+    assert (out / "trace/r1/pairs/cand1/core.jpg").read_bytes() == b"\xff\xd8jpeg" and not (out / "secret.jpg").exists()
+    assert data["state"]["trace"]["r1"]["copies"][0]["url"] == "https://example.org/v/1"
+
+
+def test_the_page_words_the_trace_section_without_saying_true_or_new():
+    page = wall.PAGE.read_text()
+    assert "Earliest confirmed copy found:" in page and "That does not mean the footage is new." in page
+    assert "not posted before the claimed date" in page and "found through a page about this footage" in page
+    assert "also read fact-checking pages" in page and "not when it was filmed" in page
+    assert "filmed on" not in page and "original" not in page.split("function traceCard")[1].split("function withdrawBox")[0]

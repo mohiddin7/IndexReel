@@ -83,13 +83,14 @@ table.res th { color: var(--muted); font-weight: 600; font-size: 13px; }
 <header>
   <h1>IndexReel clip wall <a id="newrun" class="small" href="../../" hidden>New run</a></h1>
   <div id="runinfo" class="muted small"></div>
-  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-claims" id="claims-nav" hidden>Claims</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
+  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-trace" id="trace-nav" hidden>Earlier copies</a><a href="#h-claims" id="claims-nav" hidden>Claims</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
 </header>
 <main>
   <section aria-labelledby="h-todo"><h2 id="h-todo">Needs a decision</h2><div id="todo"></div></section>
   <section aria-labelledby="h-comp" id="comp-sec" hidden><h2 id="h-comp">Possible compilations</h2><p class="muted small">A clip that seems to be cut from several recordings. Experimental: the rule that finds these failed 2 of its 4 frozen test bars. Until a person confirms it, the clip stays joined to its sources.</p><div id="comp"></div></section>
   <section aria-labelledby="h-ver"><h2 id="h-ver">The verifier changed these</h2><p class="muted small">Pairs where the verifier's answer moved the band the matcher gave.</p><div id="ver"></div></section>
   <section aria-labelledby="h-recs"><h2 id="h-recs">Recordings</h2><div id="recs"></div></section>
+  <section aria-labelledby="h-trace" id="trace-sec" hidden><h2 id="h-trace">Earlier copies</h2><p class="muted small">Posts of the same footage found by searching for what each recording shows, not what any post says. A post time is when it was posted, not when it was filmed. This does not say whether any claim is true or false: read both sets of claims and decide.</p><div id="trace"></div></section>
   <section aria-labelledby="h-claims" id="claims-sec" hidden><h2 id="h-claims">Claims to review</h2><p class="muted small" id="claims-intro"></p><div id="claims"></div></section>
   <section aria-labelledby="h-with"><h2 id="h-with">Withdraw a recording</h2><div id="withdraw"></div></section>
   <section aria-labelledby="h-hand"><h2 id="h-hand">Decided by hand</h2><div id="hand"></div></section>
@@ -294,6 +295,47 @@ function claimsBox() {
   document.getElementById("claims").innerHTML = rows.map(claimCard).join("");
 }
 
+const day = (t) => String(t || "").slice(0, 10);
+
+// one confirmed copy: where and when it was posted, link, and (with the caption) what its own post says
+function copyLine(c, claimed) {
+  const url = safeUrl(c.url), link = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : "no link";
+  const when = c.posted_at ? `posted on ${esc(c.platform || "unknown platform")} on ${esc(day(c.posted_at))}` : `${esc(c.platform || "unknown platform")}, no usable post date`;
+  const rel = c.earlier === "1" ? (c.shown ? "" : " (also posted before the claimed date)")
+    : c.earlier === "0" ? " (not posted before the claimed date)" : "";
+  const via = c.via_factcheck ? ` <span class="muted">found through a page about this footage</span>` : "";
+  return `<div>${when}, ${c.account ? `@${esc(String(c.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${rel}${via}</div>`;
+}
+
+function traceCard(id, t) {
+  const rec = S.recordings.find((r) => r.id === id), members = rec ? rec.members : [];
+  const shown = t.copies.find((c) => c.shown), others = t.copies.filter((c) => !c.shown).sort((a, b) => String(a.posted_at).localeCompare(String(b.posted_at)));
+  const claims = (S.claim_rows || []).filter((r) => r.status === "approved" && members.includes(r.clip));
+  const claimed = t.claimed ? ` The claimed date is ${esc(day(t.claimed))}.` : "";
+  let head;
+  if (shown) {
+    const img = shown.evidence ? `<img src="${shown.evidence.split("/").map(encodeURIComponent).join("/")}" alt="three aligned frame pairs, this recording on the left and the earlier copy on the right">` : `<div class="noimg muted small">no evidence image</div>`;
+    head = `<div><strong>Earliest confirmed copy found:</strong> ${copyLine(shown)}</div>
+      <div class="pair"><div>${img}</div><div>
+        <div class="small muted">What that copy's own post says</div>${shown.caption ? `<q class="small">${esc(shown.caption)}</q>` : `<div class="small muted">no caption</div>`}
+        <div class="small muted" style="margin-top:8px">Claims approved for this recording today</div>
+        ${claims.length ? `<ul class="claims small">${claims.map((r) => `<li><strong>${esc(r.claim_id)}</strong> ${esc(r.claim_text)}</li>`).join("")}</ul>` : `<div class="small muted">none approved</div>`}
+      </div></div>`;
+  } else {
+    head = `<div>No earlier upload of this footage was found among ${esc(t.searched)} post${t.searched === 1 ? "" : "s"} searched. That does not mean the footage is new.</div>`;
+  }
+  const list = others.length ? `<div class="small" style="margin-top:8px"><strong>${shown ? "Other" : "Confirmed"} copies</strong>${others.map((c) => copyLine(c)).join("")}</div>` : "";
+  const leak = t.leak ? `<div class="small muted" style="margin-top:6px">The web search for this recording also read fact-checking pages.</div>` : "";
+  return `<article class="card"><div><strong>${esc(id)}</strong> <span class="muted small">${members.map(nm).join(", ")}${claimed}</span></div>${head}${list}${leak}</article>`;
+}
+
+function traceBox() {
+  const sec = document.getElementById("trace-sec"), nav = document.getElementById("trace-nav");
+  sec.hidden = nav.hidden = !S.trace;
+  if (!S.trace) return;
+  document.getElementById("trace").innerHTML = Object.entries(S.trace).map(([id, t]) => traceCard(id, t)).join("");
+}
+
 function withdrawBox() {
   const box = document.getElementById("withdraw");
   if (!S.claims) {
@@ -391,6 +433,7 @@ function render() {
   document.getElementById("recs").innerHTML = S.recordings.map(recCard).join("");
   const hand = S.pairs.filter((p) => p.decision && p.band !== "unresolved");
   claimsBox();
+  traceBox();
   withdrawBox();
   resultsBox();
   const dismissed = Object.entries(S.clip_decisions).filter(([, d]) => d.action === "dismiss_compilation");
