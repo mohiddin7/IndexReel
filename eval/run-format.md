@@ -36,6 +36,8 @@ A clip that came from a post has a `source` key (absent for a local file):
 
 All keys are strings and always present, `null` where the post does not say. `platform` is `x` for twitter.com and x.com posts, otherwise the lowercase extractor name. `account` has no `@`. `posted_at` is UTC ISO 8601, or only the date if that is all that is known. `caption` is cut at 2000 characters. `indexreel match` copies the sidecar `<clip>.source.json` that sits next to the clip, unchanged; nothing else of the post is kept.
 
+Optional key `credit` (a string, for example `"NASA footage"`): who made the footage, written by hand in the sidecar for clips made from public-domain or licensed sources. Absent otherwise; `indexreel fetch` never writes it. A page may show it next to the clip.
+
 ## Fetching posts
 
 `indexreel fetch --out <clips dir> <post URL or text file of URLs>...` downloads the videos of the posts it is given with yt-dlp and writes `<id>.<ext>` and `<id>.source.json` into the clips directory. The id is `<yt-dlp extractor>_<post id>` (for example `twitter_1234567890123456789`); a post with several videos gives up to four clips. An existing clip is never overwritten, so ids stay unique in a directory.
