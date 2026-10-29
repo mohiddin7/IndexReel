@@ -414,9 +414,36 @@ def frame_at(path, t):
 _NETS = {}
 
 
+def increasing_best(sims):
+    """Column indices j1 < j2 < ... (one per row) with the largest total similarity: a time-warp that keeps the
+    order of the footage, not a free pick per row. None when there are fewer columns than rows."""
+    import numpy as np
+    n, m = sims.shape
+    if m < n:
+        return None
+    best, back = sims[0].astype(float).copy(), []
+    for i in range(1, n):
+        prev = np.full(m, -np.inf)
+        arg = np.zeros(m, int)
+        run, at = -np.inf, -1
+        for j in range(m):  # best of best[:j] for column j
+            prev[j], arg[j] = run, at
+            if best[j] > run:
+                run, at = best[j], j
+        best = prev + sims[i]
+        back.append(arg)
+    j = int(np.argmax(best))
+    out = [j]
+    for arg in reversed(back):
+        j = int(arg[j])
+        out.append(j)
+    return out[::-1]
+
+
 def best_match_times(model, frames, path, b0, b1, step=0.5):
-    """For each frame, the time in [b0, b1] of `path` whose frame SSCD finds most alike. The matcher aligns by one
-    offset, which drifts when the input is slowed down or sped up; this follows the footage instead."""
+    """For the input frames, in order, times in [b0, b1] of `path`, strictly increasing, whose frames SSCD finds most
+    alike overall. The matcher aligns by one offset, which drifts when the input is slowed down or sped up; this
+    follows the footage instead, and keeping the order means rows cannot be picked freely."""
     from indexreel import sscd
     if model not in _NETS:
         _NETS[model] = sscd.load(model)
@@ -425,7 +452,8 @@ def best_match_times(model, frames, path, b0, b1, step=0.5):
     if not cand:
         return None
     sims = sscd.embed(_NETS[model], frames) @ sscd.embed(_NETS[model], [f for _, f in cand]).T
-    return [cand[i][0] for i in sims.argmax(1)]
+    idx = increasing_best(sims)
+    return [cand[i][0] for i in idx] if idx else None
 
 
 def core_evidence(pdir, p, out, model=None):
