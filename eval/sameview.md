@@ -65,3 +65,16 @@ What differs from `18a42e4` in the pipeline, all committed before this amendment
 The run uses a detached checkout of `66a179b`, with `PYTHONPATH` set to its `src` for match, verify and the scorer, and `--sscd-model` given as an absolute path. The bars and the decision rule do not change. A pair whose effective band is `merged` counts as an automatic merge for bar 1, even if the matcher marks it `partial`, because a shared-footage link between two different recordings is also wrong. The report shows `partial` links separately.
 
 Note only, not tested or tuned here: on the re-film arm, the cheap judge missed portrait re-films by saying `different` or abstaining without naming a detail (`eval/report2-refilm.md`). Nothing in this test depends on that.
+
+## Amendment 2 (Oct 28 night, before any clip exists: `data/sameview/raw` holds 0 files)
+
+**Reason:** the same-place test failed (`eval/sameplace-result.md`). One cheap `same` on two consecutive handheld pans of one view became a shared-footage claim between two different recordings. Nothing re-asked it, even though the two clips' sound did not match. That failure stays a FAIL and that set is not run again. This test now runs on **`8c05314`**, which adds two triggers for the full-fidelity judge:
+
+1. A pair the cheap judge called `same` whose sound is usable on both clips but does not match (`audio.score` below `AUDIO_MATCH` 0.03, the existing threshold between the highest negative 0.0066 and the lowest copy 0.105 in `eval/audio-h2-result.md`).
+2. A link that `cluster.resolve_all` would show as shared footage (`partial`).
+
+No new constant is added, and nothing was set on the same-place data. As before, a `yes` in either order of the full-fidelity re-ask is `same`; otherwise the pair is `different` (`no` in both orders) or `abstain`. Prompts, effort, output caps and grouping are unchanged.
+
+Other changes between `66a179b` and `8c05314` in `src/`: a new `trace` command and its entry in the command list (`cli.py`). This test does not use them, and `indexreel match` is unchanged.
+
+Run from a detached checkout of `8c05314`. The commands, bars and decision rule are those of the protocol and Amendment 1.
