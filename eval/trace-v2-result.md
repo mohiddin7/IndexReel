@@ -18,7 +18,7 @@ Trace runs the recordings in the order of their ids, so the sources each case ac
 | n4, n5, n6, n7 | no (budget) | yes | no (quota) |
 | n8, n9 | no (budget) | no (budget) | no (quota) |
 
-A separate exploratory rerun of n4 to n9, after the quota resets, is reported at the end. It does not count toward the bars.
+A separate exploratory rerun of n4 to n9, after the quota resets and on fixed code, is reported at the end. It does not count toward the bars.
 
 ## Verdict: FAIL
 
@@ -30,6 +30,19 @@ A separate exploratory rerun of n4 to n9, after the quota resets, is reported at
 | Secondary: found, counting leak-exposed sources | 3 of 11 | |
 
 Trace never showed a copy that the reviewer judged a different recording, and never showed anything on a control. But for 4 copies its own evidence image did not make the link plain, and under Clarification 1 of `eval/trace.md` that is a wrong statement.
+
+## Correction (Oct 29 2026, after an independent review of trace's code and these run files)
+
+The verdict and every row below stay as first written. An independent reviewer, who did not build trace, read its code and this run's files. What it found changes some counts and the explanations, not the result.
+
+- **Counts.** Trace counted a YouTube video found under two URLs (`/shorts/<id>` and `/watch?v=<id>`) as two candidates. The 25 earlier confirmed copies are 23 distinct videos. n1 fetched 9 distinct videos, not 10, with 4 earlier confirmed copies, not 5; n2 fetched 9, with 8 earlier, not 9. Each such duplicate also took a fetch slot.
+- **n2's two `cannot tell` answers** (a004, a006). The explanation above, that the frames were "the same terrain at different scales", misses the main defect. Both candidates are mirror images of my input, but the matcher's `mirrored` flag said they were not. That flag comes from SSCD, which barely tells a frame from its mirror image, and trace drew the evidence image by it. With the orientation found from the pixels, the two sides line up.
+- **a018's uneven gaps.** The candidate and the input play at the same speed. The order-keeping frame choice of Amendment B still moved each candidate frame on its own, away from the matcher's offset (28.5, 32.5 and 36.5 s became 28.0, 34.5 and 35.5 s). a021's three frames all came from a core span only 2 s long, which was all sky, while the clips matched over 13 s that included the street.
+- **The cost.** The money did not go on verifying every copy as such. It went on verify's full-detail re-ask of links that cover only part of a clip, which nearly every trace pair is: 13 of the 27 verified pairs were re-asked, for $1.06 of the $1.19, and n3 alone took $0.66. The re-ask is not waste: it turned 2 cheap `same` answers into `different` and `abstain`. But verify's reserve ($0.05) was smaller than the web search's ($0.10), so verifying one recording used up the money the later recordings needed for their searches.
+- **Bar 1 reading.** The scorer counts every earlier confirmed copy in `trace.csv` as a statement of trace. The page shows only the earliest of them (`shown`). Read the second way, bar 1 has 1 wrong statement (a018, the copy shown for n1), bar 2a is 0 of 1, and bar 2b stays 2 of 10. The run fails either way. I keep the stricter reading, every earlier confirmed copy, and a later protocol should say so in its own words.
+- **Two scorer and image bugs that did not affect this run.** The scorer would have accepted a copy on a control that the reviewer judged `same`; bar 1 counts any such copy as wrong. And a candidate whose clip id sorts before `input_` (TikTok, Instagram, Reddit, Facebook) was drawn on the left, so sheet 2 would have shown the input instead of the candidate. No row of this run was hit by either.
+
+The fixes are in trace since this run, one commit each: the scorer (3e6b4b3), the input always on the left (c949556), orientation from the pixels (fd49b8e), one speed ratio or the matcher's offset (4fd3893), frames spread over the cover span with the most detail (cc8578a), matching earliest first and stopping after 2 confirmed earlier copies, with every search run first (9027dd7), one URL per video (754755f), unranked videos last and vanished ones skipped (df3927f), failed date reads not cached (6c951bb), side labels without video ids (828de04) and letterbox bars trimmed before the pre-rank (d792cfb). None of them changes this result. The four images regenerated with them, for the record only, are described in the exploratory section at the end.
 
 ## Each test case
 
@@ -88,9 +101,18 @@ Test run $1.97 (verify $1.19, the rest Spark search, queries and corroboration),
 - **Evidence frames need content, not only order.** Frames should come from moments where the two clips match strongly and show something (not empty sky), and a copy whose image does not show the link plainly should not be shown.
 - **Corroboration should not echo a copy's caption.** The date search should look for the footage's origin independently of the copy it is given, or its date should not be shown as the footage's date.
 
-## Exploratory rerun of n4 to n9 (not part of the bars)
+## After the test (not part of the bars)
 
-Pending. Approved by the coordinator for the next quota day: the same frozen code and the same cache (copied, so this result's files stay as they are), capped at $2. Its numbers will go here, apart from everything above.
+### The four `cannot tell` images, drawn again with the fixed code
+
+For the record only: nothing was scored again. Images are in the private run data (`regen/`).
+- a018 (n1, the copy shown): the candidate now stays at the matcher's offset (28.5, 32.5, 36.5 s against 0.5, 4.5, 8.5 s), and the first row shows the same street on both sides.
+- a021 (n1): the frames now come from the 13 s the clips share, not the 2 s core, and the first row shows the houses instead of sky.
+- a004 and a006 (n2): the input is now shown the right way round. But both candidates are tight zooms on part of the slide beside my narrow, full-slope input, so the two sides are still hard to compare by eye. Showing the candidate's matched region at the input's scale would be the next step. None of these fixes does that.
+
+### Exploratory rerun of n4 to n9
+
+Pending. Approved by the coordinator for the next quota day, on the fixed code, on copies of this run's folder and cache (so this result's files stay as they are), capped at $2. Its numbers will go here.
 
 ## Limits
 
