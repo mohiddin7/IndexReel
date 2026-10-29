@@ -63,6 +63,21 @@ def test_match_writes_a_run_that_follows_the_format(tmp_path):
 
 
 @pytest.mark.skipif(not Path(MODEL).exists(), reason="SSCD model not in data/models")
+def test_one_clip_makes_a_run_with_no_pairs_and_one_recording(tmp_path):
+    clips = tmp_path / "clips"
+    clips.mkdir()
+    write_clip(clips / "a.mp4", 3)
+    rows, rec = cli.match(clips, tmp_path / "run", MODEL)
+    assert rows == [] and rec == cluster.recordings(["a"], [])
+    assert (tmp_path / "run" / "pairs.csv").read_text().strip() == ",".join(cli.PAIR_COLUMNS)
+
+
+def test_an_empty_folder_is_refused(tmp_path):
+    with pytest.raises(SystemExit, match="no clips"):
+        cli.find_clips(tmp_path)
+
+
+@pytest.mark.skipif(not Path(MODEL).exists(), reason="SSCD model not in data/models")
 def test_second_run_reads_the_cache(tmp_path, monkeypatch):
     clips = tmp_path / "clips"
     clips.mkdir()

@@ -78,8 +78,8 @@ def find_clips(folder):
     ids = [p.stem for p in clips]
     if len(set(ids)) != len(ids) or any("~" in i for i in ids):
         raise SystemExit("clip file names (without extension) must be unique and contain no '~'")
-    if len(clips) < 2:
-        raise SystemExit(f"need at least two clips in {folder}")
+    if not clips:
+        raise SystemExit(f"no clips in {folder}")
     return clips
 
 
