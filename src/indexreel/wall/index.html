@@ -311,7 +311,7 @@ function traceCard(id, t) {
   const rec = S.recordings.find((r) => r.id === id), members = rec ? rec.members : [];
   const shown = t.copies.find((c) => c.shown), others = t.copies.filter((c) => !c.shown).sort((a, b) => String(a.posted_at).localeCompare(String(b.posted_at)));
   const claims = (S.claim_rows || []).filter((r) => r.status === "approved" && members.includes(r.clip));
-  const claimed = t.claimed ? ` The claimed date is ${esc(day(t.claimed))}.` : "";
+  const claimed = t.claimed ? ` · the claimed date is ${esc(day(t.claimed))}.` : "";
   let head;
   if (shown) {
     const img = shown.evidence ? `<img src="${shown.evidence.split("/").map(encodeURIComponent).join("/")}" alt="three aligned frame pairs, this recording on the left and the earlier copy on the right">` : `<div class="noimg muted small">no evidence image</div>`;
