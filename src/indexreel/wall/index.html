@@ -303,7 +303,7 @@ function copyLine(c, claimed) {
   const when = c.posted_at ? `posted on ${esc(c.platform || "unknown platform")} on ${esc(day(c.posted_at))}` : `${esc(c.platform || "unknown platform")}, no usable post date`;
   const rel = c.earlier === "1" ? (c.shown ? "" : " (also posted before the claimed date)")
     : c.earlier === "0" ? " (not posted before the claimed date)" : "";
-  const via = c.via_factcheck ? ` <span class="muted">found through a page about this footage</span>` : "";
+  const via = c.leak_copy ? ` <span class="muted">found only by a web search that also read fact-checking pages</span>` : "";
   return `<div>${when}, ${c.account ? `@${esc(String(c.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${rel}${via}</div>`;
 }
 

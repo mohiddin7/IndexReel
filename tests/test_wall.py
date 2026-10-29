@@ -769,6 +769,16 @@ def test_trace_export_carries_the_section_and_its_images(run, tmp_path):
 def test_the_page_words_the_trace_section_without_saying_true_or_new():
     page = wall.PAGE.read_text()
     assert "Earliest confirmed copy found:" in page and "That does not mean the footage is new." in page
-    assert "not posted before the claimed date" in page and "found through a page about this footage" in page
+    assert "not posted before the claimed date" in page and "found only by a web search that also read fact-checking pages" in page
     assert "also read fact-checking pages" in page and "not when it was filmed" in page
     assert "filmed on" not in page and "original" not in page.split("function traceCard")[1].split("function withdrawBox")[0]
+
+
+def test_trace_reads_claimed_date_and_leak_copy_when_the_columns_exist(run):
+    trace_run(run)
+    f = run / "trace.csv"
+    head, *rows = f.read_text().splitlines()
+    f.write_text("\n".join([head + ",claimed_date,leak_copy"] + [r + (",2018-01-01,1" if r.startswith("r1,a_orig,web,,https") else ",2018-01-01,0" if r.startswith("r1") else ",,0") for r in rows]) + "\n")
+    t = wall.read_trace(run)
+    assert t["r1"]["claimed"] == "2018-01-01" and t["r2"]["claimed"] == ""
+    assert [c["leak_copy"] for c in t["r1"]["copies"]] == [True, False]

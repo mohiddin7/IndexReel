@@ -92,7 +92,7 @@ def read_trace(run):
         rec["copies"].append({
             "clip": clip, "url": r["url"], "platform": r["platform"], "account": r["account"], "posted_at": r["posted_at"],
             "source": r["source"], "earlier": r["earlier"] or None, "shown": r["shown"] == "1",
-            "via_factcheck": r.get("via_factcheck") == "1", "caption": caption,
+            "leak_copy": r.get("leak_copy") == "1", "caption": caption,
             "evidence": r["evidence"] if img and img.is_file() and img.is_relative_to(root) else ""})
     return out
 
