@@ -230,3 +230,12 @@ def test_core_evidence_shows_three_rows_from_inside_the_core_span(tmp_path):
     assert trace.core_evidence(pdir, p, tmp_path / "out" / "core.jpg")
     assert cv2.imread(str(tmp_path / "out" / "core.jpg")).shape[:2] == (3 * cli.THUMB[1], 2 * cli.THUMB[0])
     assert not trace.core_evidence(pdir, {**p, "core_a_start_s": ""}, tmp_path / "none.jpg")
+
+
+def test_a_post_found_by_several_sources_lists_them_all(tmp_path):
+    (tmp_path / "v.mp4").write_bytes(b"viral")
+    s = trace.Searcher(FakeSpark(["https://www.youtube.com/watch?v=old"]), verify.Cache(tmp_path / "cache"),
+                       search=lambda q, n, h=None: [] if h else YT.get(q, []), log=lambda *_: None)
+    order, _, _ = s.candidates(str(tmp_path / "v.mp4"))
+    assert order[0] == ("web+youtube", "lava river at night", "https://www.youtube.com/watch?v=old")
+    assert [u for _, _, u in order].count("https://www.youtube.com/watch?v=old") == 1

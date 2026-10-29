@@ -289,14 +289,17 @@ class Searcher:
         text = SEARCH_PROMPT.format(n=SEARCHES, domains=", ".join(EXCLUDED[:6] + ["perma.cc", "archive.org"]))
         ans, hits = self._spark("web", clip, text, True)
         web = [("web", "", str((p or {}).get("url") or "")) for p in ((ans or {}).get("posts") or []) if isinstance(p, dict)]
-        order, seen = [], set()
+        order, at = [], {}
         for i in range(max(len(web), len(chan), len(yt))):  # take the sources in turn: web, channel, YouTube
             for src in (web, chan, yt):
                 if i < len(src):
                     s, q, u = src[i]
-                    if u not in seen:
-                        seen.add(u)
+                    if u not in at:
+                        at[u] = len(order)
                         order.append((s, q, u))
+                    elif s not in order[at[u]][0].split("+"):  # found again: keep every source that found it
+                        s0, q0, _ = order[at[u]]
+                        order[at[u]] = (f"{s0}+{s}", q0 or q, u)
         return order, hits, leaky(hits)
 
 

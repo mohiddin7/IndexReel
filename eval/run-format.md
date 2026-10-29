@@ -196,7 +196,7 @@ One JSON object per line, appended and never edited:
 |---|---|
 | `recording` | recording id from `clusters.json` (after human decisions) |
 | `input` | the recording's clip that was searched for (its first member) |
-| `source` | `web` (Spark with web search), `channel` (YouTube search inside the channel Spark named as the likely first source) or `youtube` (YouTube search) |
+| `source` | `web` (Spark with web search), `channel` (YouTube search inside the channel Spark named as the likely first source) or `youtube` (YouTube search); every source that found the post, joined with `+` (for example `web+youtube`) |
 | `query` | the YouTube query that found it; empty for `web` |
 | `url` | the candidate post |
 | `platform`, `post_id`, `account`, `posted_at` | from the fetched post's sidecar (see Fetching posts); `posted_at` is the platform's own post time |
