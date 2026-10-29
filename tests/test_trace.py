@@ -107,7 +107,7 @@ def test_earliest_confirmed_earlier_copy_is_shown_and_later_or_undated_ones_are_
     by = {r["url"]: r for r in rows}
     assert by[web[0]]["fetch"] == "excluded" and by[web[2]]["fetch"] == "not_a_post"
     assert by["https://x.com/u/status/9"]["platform"] == "x" and by["https://x.com/u/status/9"]["earlier"] == 1
-    assert by["https://www.youtube.com/watch?v=late"]["earlier"] == 0  # a later upload is never shown
+    assert by["https://www.youtube.com/watch?v=late"]["fetch"] == "enough_copies"  # two earlier copies came first
     assert [r["url"] for r in rows if r["shown"] == 1] == ["https://x.com/u/status/9"]
     assert by["https://x.com/u/status/9"]["evidence"].startswith("trace/r1/pairs/twitter_9/run/frames/")
     out = list(csv.DictReader(open(run / "trace.csv", newline="")))
@@ -509,3 +509,51 @@ def test_a_short_core_spreads_the_frames_over_the_cover_and_prefers_detail(tmp_p
     ts = trace.evidence_times(v, (10.0, 12.0), (0.0, 18.0))
     assert len(ts) == 3 and ts == sorted(ts) and ts[0] < 6 and ts[1] < 9  # not crowded into the 2 s of grey
     assert trace.evidence_times(v, (1.0, 8.0), (0.0, 18.0)) == [1.5, 4.5, 7.5]  # a long core: start, middle, end
+
+
+def test_verification_stops_after_two_earlier_copies_taken_earliest_first(tmp_path):
+    YT["copies"] = [f"https://www.youtube.com/watch?v={i}" for i in ("c", "a", "b")]
+    try:
+        spark = FakeSpark([], queries=("copies",))
+        posted = {"https://www.youtube.com/watch?v=a": ("youtube", "a", "2016-01-01"),
+                  "https://www.youtube.com/watch?v=b": ("youtube", "b", "2017-01-01"),
+                  "https://www.youtube.com/watch?v=c": ("youtube", "c", "2018-01-01")}
+        matched = []
+        base = fake_matcher({"youtube_a": "merged", "youtube_b": "merged", "youtube_c": "merged"})
+        def matcher(folder, out, model):
+            matched.append(next(p.stem for p in folder.iterdir() if not p.stem.startswith("input_")))
+            base(folder, out, model)
+        run = run_dir(tmp_path)
+        s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else [],
+                           log=lambda *_: None)
+        rows = trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None,
+                           fetcher=fake_fetcher(posted), matcher=matcher)
+        assert matched == ["youtube_a", "youtube_b"]  # the earliest first; the third is never matched
+        by = {r["url"][-1]: r for r in rows}
+        assert by["c"]["fetch"] == "enough_copies" and by["c"].get("confirmed", "") == ""
+        assert by["a"]["shown"] == 1
+    finally:
+        YT.pop("copies")
+
+
+def test_every_search_runs_before_any_matching_and_verify_keeps_a_reserve(tmp_path):
+    events = []
+    spark = FakeSpark([])
+    orig = spark.ask
+    spark.ask = lambda clip, text, web: (events.append("corroborate" if "when and where" in text else "search"), orig(clip, text, web))[1]
+    run = run_dir(tmp_path)
+    clips = json.loads((run / "clips.json").read_text())
+    clips["clips"].append({"id": "viral2", "path": str(tmp_path / "v2.mp4")})
+    (tmp_path / "v2.mp4").write_bytes(b"other")
+    (run / "clips.json").write_text(json.dumps(clips))
+    base = fake_matcher({"youtube_old": "merged"})
+    verified = []
+    s = trace.Searcher(spark, verify.Cache(tmp_path / "cache"), search=lambda q, n, h=None: YT.get(q, []) if h is None else [],
+                       max_usd=trace.VERIFY_GUARD + 1.5 * trace.CORROBORATE_RESERVE + 4 * 0.01, log=lambda *_: None)
+    trace.trace(run, s, model=None, dates={"viral": "2021-12-05", "viral2": "2021-12-05"}, judge=object(), log=lambda *_: None,
+                fetcher=fake_fetcher({"https://www.youtube.com/watch?v=old": ("youtube", "old", "2017-02-02")}),
+                matcher=lambda f, o, m: (events.append("match"), base(f, o, m))[1],
+                verifier=lambda out, judge, cache, max_usd, workers: (verified.append(max_usd), (0.0, 0.0))[1])
+    first_match = events.index("match")
+    assert events.count("search") == 4 and "search" not in events[first_match:]  # 2 recordings x (queries, web)
+    assert len(verified) == 1  # with two recordings to go, the reserve left room to verify only once

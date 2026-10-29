@@ -49,7 +49,9 @@ MAX_S = 1800  # longest candidate fetched, seconds (the coarse pass keeps long o
 COARSE_OVER = 90  # candidates longer than this (s) are first cut to the stretch a coarse pass flags
 COARSE_STEP = 4  # the coarse pass looks at one frame every this many seconds
 MARGIN = 15  # seconds kept on each side of that stretch; inside it the match runs at 1 frame per second as usual
-GUARD = {"web": 0.10, "queries": 0.03, "corroborate": 0.10}
+GUARD = {"web": 0.10, "queries": 0.03, "corroborate": 0.05}
+CORROBORATE_RESERVE = 0.05  # kept back from verify for each recording still to come (its date search)
+ENOUGH = 2  # confirmed earlier copies after which a recording's other candidates are not matched or verified
 VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is left, and keep it in reserve  # stop before a call when less than this is left of --max-usd
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
 # eval/trace-v2.md: sources, their families, and the choices made before anything is downloaded
@@ -718,17 +720,24 @@ def claimed_dates(path):
     return {r["clip"]: r["claimed_date"][:10] for r in csv.DictReader(open(path, newline=""))} if path else {}
 
 
-def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None, cache=None, fetcher=run_low,
-                    matcher=cli.match, verifier=verify.verify, narrower=narrow, log=print):
-    """trace.csv rows for one recording; candidates go to <run>/trace/<recording>/."""
-    run = Path(run)
+def recording_input(run, rec, clips, dates):
+    """(the clip searched for, its path, the claimed date, the recording's own posts)."""
     by_id = {c["id"]: c for c in clips}
     members = [m for m in rec["members"] if m in by_id]
     clip = by_id[members[0]]
-    src = Path(clip["path"]) if Path(clip["path"]).is_absolute() else run / clip["path"]
+    src = Path(clip["path"]) if Path(clip["path"]).is_absolute() else Path(run) / clip["path"]
     posted = [day((by_id[m].get("source") or {}).get("posted_at")) for m in members]
     before = min([dates[m] for m in members if m in dates] or [p for p in posted if p] or [None])
     own = {((by_id[m].get("source") or {}).get("platform"), (by_id[m].get("source") or {}).get("post_id")) for m in members}
+    return clip, src, before, own
+
+
+def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None, cache=None, fetcher=run_low,
+                    matcher=cli.match, verifier=verify.verify, narrower=narrow, log=print, reserve=0.0):
+    """trace.csv rows for one recording; candidates go to <run>/trace/<recording>/. Verify keeps `reserve` dollars
+    back for the recordings still to come."""
+    run = Path(run)
+    clip, src, before, own = recording_input(run, rec, clips, dates)
 
     order, hits, leaks = searcher.candidates(str(src), before)  # what the clip shows only; the claims stay on the page
     exposed = {s for s, v in searcher.leaks.items() if v} if searcher.leaks else ({"web"} if leaks else set())
@@ -781,7 +790,12 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
                 for f in cdir.glob(f"{got[r['url']]}.*"):
                     f.unlink()
         narrower(model, src, cdir, work, fetched, log)
+        fetched.sort(key=lambda r: r.get("posted_at") or "9999")  # the earliest first, so they are the ones verified
+        found = 0
         for r in fetched:  # the input against each candidate on its own: no money on candidate-to-candidate pairs
+            if found >= ENOUGH:
+                r["fetch"] = "enough_copies"  # later than two confirmed earlier copies: not matched or verified
+                continue
             cand = next(p for p in sorted(cdir.glob(r["clip"] + ".*")) if not p.name.endswith(".json"))
             pdir = work / "pairs" / r["clip"]
             pdir.mkdir(parents=True, exist_ok=True)
@@ -791,7 +805,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             out = pdir / "run"
             t0 = time.time()
             matcher(pdir, out, model)
-            left = max_usd - searcher.spent
+            left = max_usd - searcher.spent - reserve
             if judge and left >= VERIFY_GUARD:
                 spent, _ = verifier(out, judge, cache, max_usd=left - VERIFY_GUARD, workers=1)
                 searcher.spent += spent
@@ -812,6 +826,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             r["confirmed"] = int(r["band"] == "merged")
             dated = r.get("platform") in PLATFORMS and day(r.get("posted_at"))
             r["earlier"] = (int(day(r["posted_at"]) < before) if before else "") if dated else ""
+            found += int(r["confirmed"] == 1 and r["earlier"] == 1)
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
         r["shown"] = int(bool(shown) and r is shown[0])
@@ -841,9 +856,14 @@ def trace(run, searcher, model=cli.MODEL, dates=None, judge=None, cache=None, lo
     """Write <run>/trace.csv for every recording. Returns the rows."""
     run = Path(run)
     clips = json.loads((run / "clips.json").read_text())["clips"]
+    recs = withdraw.run_recordings(run)
+    for rec in recs:  # every search first, so that verifying one recording cannot use up another's search
+        _, src, before, _ = recording_input(run, rec, clips, dates or {})
+        searcher.candidates(str(src), before)
     rows = []
-    for rec in withdraw.run_recordings(run):
-        rows += trace_recording(run, rec, clips, searcher, dates or {}, model, searcher.max_usd, judge, cache, log=log, **kw)
+    for i, rec in enumerate(recs):
+        rows += trace_recording(run, rec, clips, searcher, dates or {}, model, searcher.max_usd, judge, cache, log=log,
+                                reserve=CORROBORATE_RESERVE * (len(recs) - i), **kw)
     with open(run / "trace.csv", "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS, extrasaction="ignore", restval="")
         w.writeheader()
