@@ -787,3 +787,13 @@ def test_trace_reads_claimed_date_and_leak_copy_when_the_columns_exist(run):
 def test_the_trace_credit_line_names_the_poster_and_uses_the_inputs_own_credit_key():
     js = wall.PAGE.read_text().split("function traceCard")[1].split("function traceBox")[0]
     assert "input.credit" in js and "Copy posted" in js and "Credit: " in js
+
+
+def test_trace_corroborated_date_and_strength_never_reach_the_page_data(run):
+    trace_run(run)
+    f = run / "trace.csv"
+    head, *rows = f.read_text().splitlines()
+    f.write_text("\n".join([head + ",corroborated_date,corroboration"] + [r + ",2021-11-26,strong" for r in rows]) + "\n")
+    assert "2021-11-26" not in json.dumps(wall.state(run)["trace"]) and "strong" not in json.dumps(wall.state(run)["trace"])
+    page = wall.PAGE.read_text()
+    assert "corroborat" not in page
