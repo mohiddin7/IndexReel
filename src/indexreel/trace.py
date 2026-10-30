@@ -40,6 +40,10 @@ LEAK_WORDS = ["fact check", "fact-check", "debunk", "false", "misleading", "misr
 HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "x.com", "twitter.com", "www.tiktok.com",
          "tiktok.com", "www.instagram.com", "instagram.com", "www.facebook.com", "facebook.com", "m.facebook.com",
          "fb.watch", "www.reddit.com", "reddit.com", "old.reddit.com", "vimeo.com"}
+# what a post's path (plus "?" and query) shows on each platform besides YouTube and X; anything else there is a profile or page
+POST_MARKS = {"facebook.com": [r"/videos/", r"^/watch/?\?.*v=", r"^/reel/", r"/posts/", r"^/(permalink|story)\.php", r"^/share/[vr]/"],
+              "instagram.com": [r"^/(p|reel|reels|tv)/"], "tiktok.com": [r"/video/\d"], "reddit.com": [r"/comments/"],
+              "vimeo.com": [r"^/\d+"]}
 PLATFORMS = {"youtube", "x", "tiktok", "instagram", "facebook", "reddit", "vimeo"}
 MAX_CANDIDATES = 10
 SEARCHES = 3  # web searches Spark is asked to make at most
@@ -127,6 +131,10 @@ def post_url(url):
     p = urlsplit(url)
     if "youtube.com" in (p.hostname or "") and not (p.path == "/watch" and "v=" in p.query or p.path.startswith(("/shorts/", "/live/"))):
         return None
+    host = (p.hostname or "").removeprefix("www.").removeprefix("m.").removeprefix("old.")
+    marks = POST_MARKS.get(host)
+    if marks and not any(re.search(m, p.path + "?" + p.query) for m in marks):
+        return None  # a profile, page or channel on that platform, not a post
     return url
 
 

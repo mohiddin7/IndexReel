@@ -97,6 +97,21 @@ def test_post_urls_only_from_platforms():
     assert trace.post_url("https://www.youtube.com/shorts/abc") and trace.post_url("https://youtu.be/abc")
 
 
+def test_profile_and_page_urls_on_other_platforms_are_not_posts():
+    # seen in a live run: a later copy's description named its channel's social pages, which took fetch slots
+    for u in ["https://www.facebook.com/Reuters", "https://facebook.com/khabernama4tv", "https://www.facebook.com/AsianetNewsa...",
+              "https://www.instagram.com/APNews/", "https://www.instagram.com/reuters/?hl=en", "https://www.tiktok.com/@asiaone",
+              "https://www.reddit.com/r/weather/", "https://vimeo.com/channels/staffpicks"]:
+        assert trace.post_url(u) is None, u
+    for u in ["https://www.facebook.com/ABC11WTVD/videos/10157736387157369/", "https://www.facebook.com/watch/?v=802546124398240",
+              "https://www.facebook.com/reel/653357386699731", "https://www.facebook.com/aruna.akalanka.92/posts/3519252025066536",
+              "https://www.facebook.com/permalink.php?story_fbid=1&id=2", "https://www.facebook.com/share/v/abc/", "https://fb.watch/abc/",
+              "https://www.instagram.com/reel/CtsrjBlAked/", "https://www.instagram.com/p/CJ4osaYhmch/",
+              "https://www.tiktok.com/@m_307reinke/video/7406419004962704682", "https://www.reddit.com/r/weather/comments/abc/x/",
+              "https://vimeo.com/123456"]:
+        assert trace.post_url(u) == u, u
+
+
 def test_earliest_confirmed_earlier_copy_is_shown_and_later_or_undated_ones_are_not(tmp_path):
     web = ["https://factcheck.afp.com/doc.afp.com.9U673E", "https://x.com/u/status/825312465515446272", "https://www.usgs.gov/v"]
     posted = {"https://x.com/u/status/825312465515446272": ("twitter", "825312465515446272", "2017-01-28"),
