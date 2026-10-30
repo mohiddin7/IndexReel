@@ -851,7 +851,7 @@ def sync_dir(tmp_path, **over):
     d = tmp_path / "park_sync"
     d.mkdir()
     res = {"version": 1, "a": "park_a", "b": "park_b", "lag_s": 24.0, "peak": 0.91, "sidelobe_ratio": 7.5,
-           "clap_lag_s": 23.99, "metadata_lag_s": 24.0,
+           "clap_lag_s": 23.99, "metadata_lag_s": 24.0, "rule_passed": True, "bar": 8,
            "pairs": [{"a_s": 10.0 * i, "b_s": 10.0 * i + 24.0, "image": f"pair{i}.jpg"} for i in (1, 2, 3)]} | over
     for p in res["pairs"] if isinstance(res["pairs"], list) else []:
         if isinstance(p, dict) and isinstance(p.get("image"), str) and "/" not in p["image"] and p["image"] != "missing.jpg":
@@ -874,7 +874,8 @@ def test_sync_clap_and_clock_may_be_missing(tmp_path):
 @pytest.mark.parametrize("over", [
     {"lag_s": "24"}, {"lag_s": True}, {"peak": None}, {"a": ""}, {"pairs": []}, {"version": 2},
     {"pairs": [{"a_s": 1, "b_s": 2, "image": "../x.jpg"}] * 3}, {"pairs": [{"a_s": 1, "b_s": 2, "image": "x.png"}] * 3},
-    {"pairs": [{"a_s": 1, "b_s": 2, "image": "missing.jpg"}] * 3}, {"clap_lag_s": "23.99"}])
+    {"pairs": [{"a_s": 1, "b_s": 2, "image": "missing.jpg"}] * 3}, {"clap_lag_s": "23.99"},
+    {"rule_passed": "yes"}, {"bar": "8"}])
 def test_sync_refuses_a_result_it_cannot_trust(tmp_path, over):
     with pytest.raises(ValueError):
         wall.read_sync(sync_dir(tmp_path, **over))
@@ -923,3 +924,22 @@ def test_the_page_words_the_same_moment_box_as_exploratory_and_never_says_verifi
     assert "signed(" not in box and "s.lag_s < 0" in box and '"after"' in box and '"before"' in box and "started together" in box
     assert "Checked against" in box and "a clap filmed by both" in box and "the files' clocks" in box
     assert "verified" not in box.lower() and "true" not in box.lower().replace("true;", "")
+
+
+def test_sync_keeps_the_rule_verdict_and_a_missing_one_is_not_a_pass(tmp_path):
+    s = wall.read_sync(sync_dir(tmp_path, rule_passed=False))
+    assert s["rule_passed"] is False and s["bar"] == 8
+    (tmp_path / "other").mkdir()
+    s = wall.read_sync(sync_dir(tmp_path / "other", rule_passed=None, bar=None))
+    assert s["rule_passed"] is None and s["bar"] is None
+
+
+def test_the_page_does_not_claim_the_same_moment_unless_the_rule_passed():
+    box = wall.PAGE.read_text().split("function syncBox")[1].split("function withdrawBox")[0]
+    assert "s.rule_passed === true" in box
+    assert "Not enough shared sound to say these two recordings caught the same moment." in box
+    assert "where the clap filmed by both puts it" in box and "too weak to claim" in box and "Frames at the strongest sound match" in box
+    assert "No verdict from the sound rule" in box
+    claim = box.index("Two cameras recorded the same moment")
+    assert box.index("s.rule_passed === true") < claim  # the claim sits inside the passed branch
+    assert "same place, not a shared event" in box

@@ -76,6 +76,8 @@ def read_sync(path):
         raise ValueError("sync result: lag_s, peak and sidelobe_ratio must be numbers")
     if not all(r.get(k) is None or num(r[k]) for k in ("clap_lag_s", "metadata_lag_s")):
         raise ValueError("sync result: clap_lag_s and metadata_lag_s must be numbers or null")
+    if not (r.get("rule_passed") is None or isinstance(r["rule_passed"], bool)) or not (r.get("bar") is None or num(r["bar"])):
+        raise ValueError("sync result: rule_passed must be true or false and bar a number")
     pairs = r.get("pairs")
     if not (isinstance(pairs, list) and len(pairs) == 3):
         raise ValueError("sync result: it needs exactly 3 frame pairs")
@@ -84,7 +86,7 @@ def read_sync(path):
             raise ValueError("sync result: each pair needs a_s, b_s and an image file name")
         if not (path.parent / p["image"]).is_file():
             raise ValueError(f"sync result: no image {p['image']}")
-    return {k: r.get(k) for k in ("a", "b", "lag_s", "peak", "sidelobe_ratio", "clap_lag_s", "metadata_lag_s")} | {
+    return {k: r.get(k) for k in ("a", "b", "lag_s", "peak", "sidelobe_ratio", "clap_lag_s", "metadata_lag_s", "rule_passed", "bar")} | {
         "pairs": [{k: p[k] for k in ("a_s", "b_s", "image")} for p in pairs]}
 
 

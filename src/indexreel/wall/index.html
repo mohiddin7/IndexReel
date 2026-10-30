@@ -360,11 +360,18 @@ function syncBox() {
   const order = s.lag_s === 0 ? `${esc(s.b)} and ${esc(s.a)} started together` : `${esc(s.b)} started ${num(Math.abs(s.lag_s), 1)} s ${s.lag_s < 0 ? "after" : "before"} ${esc(s.a)}`;
   const checks = [s.clap_lag_s != null ? `a clap filmed by both (${num(s.clap_lag_s)} s)` : "", s.metadata_lag_s != null ? `the files' clocks (${num(s.metadata_lag_s, 0)} s)` : ""].filter(Boolean);
   const checked = checks.length ? `<p class="small muted">Checked against ${checks.join(" and ")}.</p>` : "";
+  const atClap = s.clap_lag_s != null && Math.abs(s.lag_s - s.clap_lag_s) <= 0.2 ? ", where the clap filmed by both puts it" : "";
+  const strength = `peak z ${num(s.peak, 1)}${s.bar != null ? `, bar ${num(s.bar, 0)}` : ""}, sidelobe ratio ${num(s.sidelobe_ratio, 2)}`;
+  const claimed = s.rule_passed === true;  // only a pair the frozen rule accepted may be called the same moment
+  const head = claimed ? `These two recordings' sound lines up: ${order}. Two cameras recorded the same moment.`
+    : s.rule_passed === false ? "Not enough shared sound to say these two recordings caught the same moment."
+    : "No verdict from the sound rule, so nothing is claimed about these two recordings.";
+  const note = claimed ? `Exploratory: this method is not scored yet. It compares sound only and says nothing about whether any claim about the footage holds.`
+    : `The strongest sound match is at ${num(Math.abs(s.lag_s), 2)} s${atClap}, but it is too weak to claim (${strength}). Exploratory: it compares sound only, and the frames below show the same place, not a shared event.`;
   const pairs = s.pairs.map((p) => `<figure style="margin:0 0 10px"><img src="sync/${encodeURIComponent(p.image)}" alt="${esc(s.a)} at ${num(p.a_s, 1)} s and ${esc(s.b)} at ${num(p.b_s, 1)} s" style="max-width:100%"><figcaption class="small muted">${esc(s.a)} ${num(p.a_s, 1)} s · ${esc(s.b)} ${num(p.b_s, 1)} s</figcaption></figure>`).join("");
   document.getElementById("sync").innerHTML = `<div class="card">
-    <p><strong>These two recordings' sound lines up: ${order}. Two cameras recorded the same moment.</strong></p>
-    <p class="small muted">Exploratory: this method is not scored yet. It compares sound only and says nothing about whether any claim about the footage holds.</p>
-    ${pairs}${checked}<p class="small muted">Sound match: peak ${num(s.peak)}, sidelobe ratio ${num(s.sidelobe_ratio, 1)}. Private footage: this box is not in an export.</p></div>`;
+    <p><strong>${head}</strong></p><p class="small muted">${note}</p>
+    ${claimed ? "" : `<p class="small muted">Frames at the strongest sound match:</p>`}${pairs}${claimed ? checked : ""}<p class="small muted">${claimed ? `Sound match: ${strength}. ` : ""}Private footage: this box is not in an export.</p></div>`;
 }
 
 function withdrawBox() {
