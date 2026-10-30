@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from indexreel import cluster, localise, sscd
+from indexreel.match import READER
 
 MERGE_AT = 0.55  # set on dev only, see eval/match-thresholds.md
 FLOOR = 0.20
@@ -95,13 +96,13 @@ def git_commit():
 def analyse(path, net, theta, model_sha, cache):
     """Embeddings, evidence thumbnails and quads of one clip; read from the cache when this exact file was seen.
 
-    The cache key holds the file's path, size and modification time, the localiser settings and the model hash,
-    so changing any of them recomputes.
+    The cache key holds the file's path, size and modification time, the localiser settings, the frame-reader version
+    and the model hash, so changing any of them recomputes.
     """
     f = None
     if cache:
         st = path.stat()
-        key = f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{theta}|{localise.LONG_SIDE}|{localise.RATE}|{model_sha}"
+        key = f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{theta}|{localise.LONG_SIDE}|{localise.RATE}|reader{READER}|{model_sha}"
         f = Path(cache) / f"{hashlib.sha1(key.encode()).hexdigest()}.npz"
         if f.exists():
             z = np.load(f)

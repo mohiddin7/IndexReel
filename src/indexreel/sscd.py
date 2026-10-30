@@ -3,6 +3,8 @@ import cv2
 import numpy as np
 import torch
 
+from indexreel.match import open_video
+
 MIRROR_MARGIN = 0.02  # the flipped alignment must beat the plain one by this much (eval/match-thresholds.md, Amendment 2)
 CORE_COS = 0.4        # a frame belongs to the core span when its cosine along the alignment is at least this
 
@@ -34,8 +36,8 @@ def embed(model, frames, batch=32):
 
 
 def frames_per_second(path):
-    """The frame at the middle of each second of a video (OpenCV applies the rotation tag)."""
-    cap = cv2.VideoCapture(str(path))
+    """The frame at the middle of each second of a video (upright: open_video applies the rotation tag)."""
+    cap = open_video(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     kept, i, k = [], 0, 0
     while cap.grab():

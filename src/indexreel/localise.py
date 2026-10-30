@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 
 from indexreel import quad
+from indexreel.match import open_video
 
 THETA = 0.9     # edge-support cut-off, set on dev (eval/gate.md, Amendment 1)
 LONG_SIDE = 640  # frames are scaled to this before localising, the size the quad rule was written for
@@ -24,7 +25,7 @@ def sample(path, theta=THETA):
 
     ponytail: a portrait re-film of a landscape screen is not handled; the rectified output is always 640x360.
     """
-    cap = cv2.VideoCapture(str(path))
+    cap = open_video(path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     step = fps / RATE
     frames, quads, prev = [], [], None

@@ -17,9 +17,19 @@ def hashes(frames):
     return np.array(plain).astype(bool), np.array(flipped).astype(bool)
 
 
+READER = 2  # frame-reader version, part of the match cache key: 2 = rotation tag applied (1 read phone clips sideways)
+
+
+def open_video(path):
+    """cv2.VideoCapture with the rotation tag applied (OpenCV's FFMPEG backend leaves phone clips sideways otherwise)."""
+    cap = cv2.VideoCapture(str(path))
+    cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
+    return cap
+
+
 def sampled_hashes(path):
     """hashes() of every SAMPLE_EVERY-th decoded frame of a video."""
-    cap = cv2.VideoCapture(str(path))
+    cap = open_video(path)
     kept, i = [], 0
     while True:
         ok, f = cap.read()
