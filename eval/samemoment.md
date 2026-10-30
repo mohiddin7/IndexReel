@@ -194,3 +194,14 @@ With 12 positives, 9 of 12 is a recall of 0.75 (Wilson 95% interval 0.47 to 0.91
 - The person filming walks through both views at the end; scoring stops before the clap, but footsteps before it are in the window.
 - No scripted shows, no reused trending sounds beyond the two constructed controls, no long recordings (drift), no edited reposts beyond WhatsApp.
 - A pass shows the rule on this kind of footage; it does not make "same moment" a verdict on posts. The product would show the evidence (both envelopes at the found lag, the frames at a shared transient), and a person decides.
+
+## Amendment 1 (Oct 30, before any clip of this test exists: `data/samemoment/raw` holds 0 clips)
+
+- **Change:** in `talk`, I play music from a phone that is not filming instead of speaking. It is the same track as in `indoor`: "In the Hall of the Mountain King", recorded above with sha256 `3bfa7424…3342`. The phone plays `data/samemoment/track/Hall_of_the_Mountain_King_play.m4a` (sha256 `b92c9d9fe4130cafa18bbb470922c8f7a1ad947f2ac617fbc14bf3015de6abe5`). That file is an AAC copy of the recorded track: 154.1 s long, with correlation 0.9994 at lag 0 against it at 8 kHz. The track starts from its beginning in both `talk` takes. This replaces the `talk` rows in step 3 and in the scene table ("my own voice … speech, no loud events").
+- **Reason:** this is my choice on the day. With the same music in take 1 and take 2, the two `talk` takes carry the same sound content at different moments. That makes the `talk` same-place, other-time negatives harder (the sound can line up while the moment differs), so it cannot make bar 1 easier. The same holds for `talk` against `indoor`, if `indoor` is filmed.
+- **Where the scorer treats `talk` by name:** only in the two constructed controls. The rule, the bars and the pair counts do not name it.
+  - **Audio swap:** the `talk_t2_iphone` picture with the `talk_t1_iphone` sound, against `talk_t1_glasses`. It is built as before. The sound now matches the other clip at take 1's moment, while the picture is take 2.
+  - **Shared music:** the track mixed under `talk_t1_glasses` at 0 s, against `crossing_t2_iphone` at 5 s. `talk_t1_glasses` now also carries the track from the room, so this negative has more shared music than planned, not less.
+  - Both controls stay negatives and are scored as frozen.
+- **Not decided by this change:** repeating music can also move the sound peak on the `talk` positive (a beat-period sidelobe). Any effect falls on bar 2's recall, not on false claims. It is reported in the pair table as frozen.
+- Nothing else changes: the scorer (`scripts/samemoment.py` at `1bca24b`), the rule, the bars, the prompt and the pairs.
