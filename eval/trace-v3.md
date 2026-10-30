@@ -94,3 +94,7 @@ As in v2, plus `enough_copies`, `date_check`, the number of `possible_source` le
 4. `python -m indexreel.claims data/trace_v3_test/run`, then I approve or reject the rows (for the page only).
 5. On Sat Oct 31 after 07:00 UTC: `indexreel trace data/trace_v3_test/run --claimed-dates data/trace_v3_test/in/claimed_dates.csv --max-usd 3 --cache data/trace_v3_test/cache`, with a new, empty cache.
 6. The two blind sheets from `trace.csv` with `scripts/score_trace.py`, then the score once. FAIL rows are kept.
+
+## Clarification C1 (Oct 30 2026, after the inputs were made, before trace ran on any of them)
+
+n16's earlier upload on Bilibili and the qq.com copy its fact-check names could not be fetched, so n16 is kind none: it stays in the test and is scored as not found. `scripts/trace_inputs.py` at `70fc6f7` gives the edits in turn to the kind (b) cases only, so from n17 on each case has the next edit of the cycle: n17 flip, n18 slow motion (on top of the reported flip), n19 zoom, n20 compilation. The rule is unchanged; the list in Inputs assumed n16 would be kind (b). With 13 recordings trace makes at most 39 Data API searches. Nothing else changes.
