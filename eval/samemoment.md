@@ -205,3 +205,31 @@ With 12 positives, 9 of 12 is a recall of 0.75 (Wilson 95% interval 0.47 to 0.91
   - Both controls stay negatives and are scored as frozen.
 - **Not decided by this change:** repeating music can also move the sound peak on the `talk` positive (a beat-period sidelobe). Any effect falls on bar 2's recall, not on false claims. It is reported in the pair table as frozen.
 - Nothing else changes: the scorer (`scripts/samemoment.py` at `1bca24b`), the rule, the bars, the prompt and the pairs.
+
+## Amendment 2 (Oct 30 evening, before any claps, manifest or scorer step on the afternoon clips)
+
+**What exists.** Five of the nine minimum takes have both clips and a clap: `street` t1 and t2, `crossing` t1 and t2, and `talk` t1. Missing are `talk` t2, `park` t1 and t2, and `street2`'s glasses clip. `street2`'s iPhone clip exists alone. The optional takes were not filmed.
+
+**The bars apply to the n that exists, as frozen:**
+- **Bar 2:** 5 raw positives. The scorer rounds 75% up, so the bar is 4 of 5, with each found lag within 0.2 s of the truth lag.
+- **Bar 1:** 0 false claims over 50 raw negatives, 50 copy-copy negatives and 3 controls: 103 in all. WhatsApp copies of all 11 clips are being made; without `street2` the counts are 40, 40 and 3. The scorer reports the 95% upper bound: about 0.029 for 103 negatives and 0.035 for 83. This is weaker than the 0.6% to 1.0% planned. If a copy is missing, only the copy-copy pairs that exist count.
+- **Bar 3:** `street2`'s iPhone clip against the 4 `street` clips gives 4 lookalike pairs (0 of 4 bounds the rate only at about 53%). Without it there are no lookalike pairs, and bar 3 and bar 4's first point are reported as not testable, not as passed.
+- **Same place, other time:** 8 pairs (`street` and `crossing`, 4 each), against 16 planned. There is none for `talk`.
+- **M:** runs on the pairs `spark_pairs` picks from these: 5 positives, 8 other-time, 4 lookalike, 3 controls and 12 cross-scene, so 32 pairs, not 64. The cap is still $1.50.
+
+**The lone clip.** `street2`'s iPhone clip enters the manifest as scene `street2`, place_kind `street`, take 1, device `iphone`. `pairs()` scores a clip with no partner as written: it makes no positive, lookalike pairs against the `street` clips and cross-scene pairs against the rest. Like every clip, it needs a clap I confirm by ear. If I can't confirm one, it is reported and not scored.
+
+**Start gaps.** The glasses started 21.4, 40.6, 17.0, 15.1 and 18.3 s after the iPhone, against the 5 to 15 s planned. The scorer searches every lag: a full cross-correlation of the two windows for sound and for picture, and every offset for the landmark fingerprint. It has no limit that a 40.6 s gap could exceed. `crossing` t1's glasses window (1.0 to 58.7 s) lies inside the iPhone window (1.0 to 99.3 s) at that lag. So no pair is lost to its gap, and none is counted as found because of it.
+
+**Crossing claps.** The iPhone hears the crossing's beep once a second, about as loud as a clap. Footage's candidates for the iPhone claps are off the beep grid: 101.265 s (`crossing` t1) and 57.125 s (`crossing` t2), each agreeing with the metadata gap within its 1 s rounding. `claps` proposes the largest onset in the last 8 s, which may be a beep. I confirm every clap by ear, as frozen. A clap I cannot tell from a beep is reported, and that clip is not scored.
+
+**Controls (scorer change `5ffd361`, committed alone before this amendment).** `controls` built all 4 controls without checking its sources, and three of them now lack one:
+- `swap_talk` needs `talk_t2_iphone`.
+- The first shared-music pair needs `park_t1_iphone` and `street2_t1_glasses`.
+
+At `5ffd361` it builds only the controls whose source clips are in the manifest with a clap, and prints the ones it skips. In place of `swap_talk` it adds `swap_crossing`, built the same way: the picture of `crossing_t2_iphone` with the sound of `crossing_t1_iphone`, paired with `crossing_t1_glasses`. It restores a planned negative of the same kind, so it can only make bar 1 harder. That gives 3 controls: `swap_street`, `swap_crossing`, and the shared music under `talk_t1_glasses` against `crossing_t2_iphone`. Nothing else in the scorer changes. The selftest now also checks the pair counts of this layout, controls included.
+
+**Disclosed, nothing changes:**
+- `talk` t1's track may be barely audible on the iPhone. Footage's rough check found nothing reliable either way, and whether the track started from its beginning in both clips is not known. Amendment 1's reasoning still holds: it can only make the `talk` positive harder to find.
+- Before this amendment, footage looked at frame sheets, metadata and sound envelopes of these clips to identify the takes and propose claps. No scorer step (`claps`, `controls`, `score`, `spark`) has run on them, and I have seen no output of the rule on them.
+- Five afternoon iPhone clips carry a -180 rotation tag. Every frame the scorer reads comes through ffmpeg, which applies the tag, so S1, S2, P and M are unaffected. The reported `indexreel match` check on all raw clips runs at `8272c1a`, which reads tagged clips upright. The code under test is otherwise as frozen.
