@@ -96,7 +96,7 @@ Test run $1.97 (verify $1.19, the rest Spark search, queries and corroboration),
 
 ## Lessons
 
-- **The cap was planned wrong, and the coordinator and I share that.** The coordinator approved a $2 cap, and I proposed it, without asking how verification scales when search finds many copies of one recording. Trace should stop verifying a recording's candidates once it has 2 confirmed earlier copies; the rest add cost, not evidence.
+- **I planned the cap wrong.** I set a $2 cap without asking how verification scales when search finds many copies of one recording. Trace should stop verifying a recording's candidates once it has 2 confirmed earlier copies; the rest add cost, not evidence.
 - **The daily API quota is a budget too.** Nobody planned the Data API's daily quota for test day, and the dev measurements of the same morning used most of it. A test run should start on a fresh quota day, or with a quota count kept like the Vision counter.
 - **Evidence frames need content, not only order.** Frames should come from moments where the two clips match strongly and show something (not empty sky), and a copy whose image does not show the link plainly should not be shown.
 - **Corroboration should not echo a copy's caption.** The date search should look for the footage's origin independently of the copy it is given, or its date should not be shown as the footage's date.
