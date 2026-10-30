@@ -112,7 +112,18 @@ For the record only: nothing was scored again. Images are in the private run dat
 
 ### Exploratory rerun of n4 to n9
 
-Pending. Approved by the coordinator for the next quota day, on the fixed code, on copies of this run's folder and cache (so this result's files stay as they are), capped at $2. Its numbers will go here.
+Run on Oct 30, 07:08 to 08:03 UTC, the first hour of a fresh Pacific quota day, on the fixed code at d792cfb, on copies of this run's folder and cache (so this result's files stay as they are), capped at $2. It spent $0.73 and made 21 Data API searches (n3 to n9; the other recordings' searches were already cached). No source stopped. It is exploratory: the bars are not scored again, nothing went to the blind reviewer, and "found" below is trace's own count of a shown, confirmed, leak-passing copy dated before the claim.
+
+| case | input | fetched | earlier confirmed | copy shown (posted) | found by trace | note |
+|---|---|---|---|---|---|---|
+| n4 | mine, zoom | 10 | 0 | - | no | the named original (ViralHog, 2019) was never a candidate |
+| n5 | mine, compilation | 9 | 0 | - | no | the named original was never a candidate |
+| n6 | mine, flip | 10 | 1 | YouTube, 2023-09-04 | yes | the named original (the edited Short). The unedited 2016 footage came from web search, and verify called it `different` |
+| n7 | mine, slow motion | 9 | 2 (then stopped) | YouTube, 2018-09-16 | yes | the Facebook original was never a candidate; the copy shown was posted the same day |
+| n8 | mine, zoom | 2 (then stopped) | 2 | YouTube, 2024-05-04 | yes | the named original, found by web search; that source was not leak-exposed for n8 |
+| n9 | mine, compilation | 10 | 0 | - | no | the original is a TikTok post; it was never a candidate |
+
+So with every source and the fixed code, trace found 3 of these 6 (n6, n7, n8), where the test found none of them. The other recordings were rerun from cache too: n1 to n3 and n11 still show a copy (n1 the same 2021-11-29 copy as before; n2 and n3 stopped after 2 copies), n10 still has none, and no control has a confirmed copy. Not scored or blind-checked, this says only that the test's failures on n4 to n9 were partly budget and quota, and partly search.
 
 ## Limits
 
