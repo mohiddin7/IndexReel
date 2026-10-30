@@ -101,3 +101,7 @@ The WhatsApp copies are made **from the cut files**, one round-trip each, as the
 **`viewb`** is filmed this afternoon to the original rules (a separate take at least 3 minutes later, 15 to 20 s, braced, landscape 1080p at 30 fps) and is not cut.
 
 **What does not change:** the code (a detached checkout of `8c05314`, as Amendment 2 says), the commands, the bars, the decision rule and the manifest columns. `viewa` enters the manifest as takes `1` and `2` with the files above.
+
+## Amendment 4 (Oct 30, before `viewb` is filmed: no `viewb` file exists)
+
+`viewb`'s two takes are separate recordings, each 15 to 20 s, made with the phone resting in one spot. Any gap between them is allowed: stop, then record again. The reason is the same as for Deviation 1 in Amendment 3. A shorter gap makes the two recordings more alike, so the same-view negative gets harder, never easier, and it cannot help bar 1 pass. Nothing else changes.
