@@ -83,7 +83,7 @@ PACE_S = 2  # seconds yt-dlp waits between requests to a platform: YouTube asks 
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
            "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy", "prerank", "families", "strength",
-           "corroborated_date", "corroboration_urls", "date_check"]
+           "corroborated_date", "corroboration_urls", "date_check", "possible_source"]
 
 QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
 The footage may be older than it seems or from somewhere else, so work only from what the video shows.
@@ -1049,6 +1049,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             r["date_check"] = date_check(r.get("platform"), r.get("post_id"), r.get("posted_at"))
             if r["date_check"] == "id_differs":  # the post's own id contradicts its date: never shown as earlier
                 r["earlier"] = ""
+            r["possible_source"] = 1 if r["earlier"] == 1 and r["confirmed"] == 0 and possible_source(p) else ""
             found += int(r["confirmed"] == 1 and r["earlier"] == 1)
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
@@ -1059,6 +1060,13 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     if shown and hasattr(searcher, "corroborate"):
         corroborate(searcher, shown[0], cdir)
     return rows
+
+
+def possible_source(p):
+    """Display only: verify called the pair different twice yet named a place or detail both clips show (same_event yes),
+    as with an edited copy whose edit adds something. Never confirms a copy, never shown as one, never in a bar."""
+    return (p.get("verify_verdict") == "different" and p.get("verify_same_event") == "yes"
+            and "no shared detail named" not in (p.get("verify_reason") or ""))
 
 
 def corroborate(searcher, r, cdir):
@@ -1119,6 +1127,8 @@ def main(argv=None):
     for r in rows:
         if r.get("shown") == 1:
             print(f"trace: {r['recording']}: earliest confirmed copy {r['url']} posted {r['posted_at']} on {r['platform']}")
+        if r.get("possible_source") == 1:
+            print(f"trace: {r['recording']}: possible earlier source, check it yourself: {r['url']} posted {r['posted_at']}")
 
 
 if __name__ == "__main__":

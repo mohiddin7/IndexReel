@@ -527,6 +527,40 @@ def test_a_short_core_spreads_the_frames_over_the_cover_and_prefers_detail(tmp_p
     assert trace.evidence_times(v, (1.0, 8.0), (0.0, 18.0)) == [1.5, 4.5, 7.5]  # a long core: start, middle, end
 
 
+def test_a_verify_different_that_names_a_shared_place_is_flagged_but_never_confirmed(tmp_path):
+    # n6 of the v2 rerun: verify said different twice while naming the same landmarks (same_event yes)
+    YT["flag"] = [f"https://www.youtube.com/watch?v={i}" for i in ("a", "b", "c", "d")]
+    answers = {"youtube_a": ("different", "yes", "re-asked, same flooded lot with a fallen palm trunk; sound not usable"),
+               "youtube_b": ("different", "yes", "no shared detail named; sound not usable"),
+               "youtube_c": ("different", "unsure", "the same kind of storm; sound not usable"),
+               "youtube_d": ("different", "yes", "same flooded lot with a fallen palm trunk; sound not usable")}
+    def matcher(folder, out, model):
+        a, b = sorted(p.stem for p in folder.iterdir() if p.suffix == ".mp4")
+        other = b if a.startswith("input_") else a
+        verdict, event, reason = answers[other]
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "pairs.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cli.PAIR_COLUMNS + ["verify_same_event"], restval="")
+            w.writeheader()
+            w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": "unresolved", "verify_verdict": verdict,
+                        "verify_reason": reason, "verify_same_event": event})
+    try:
+        posted = {f"https://www.youtube.com/watch?v={i}": ("youtube", i, d)
+                  for i, d in (("a", "2016-10-08"), ("b", "2017-01-01"), ("c", "2018-01-01"), ("d", "2022-01-01"))}
+        run = run_dir(tmp_path)
+        s = trace.Searcher(FakeSpark([], queries=("flag",)), verify.Cache(tmp_path / "cache"),
+                           search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+        rows = trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None,
+                           fetcher=fake_fetcher(posted), matcher=matcher)
+        by = {r["url"][-1]: r for r in rows}
+        assert by["a"]["possible_source"] == 1  # earlier, and verify named a shared place
+        assert [by[i]["possible_source"] for i in "bcd"] == ["", "", ""]  # no detail, unsure, or not earlier
+        assert all(r.get("confirmed", 0) == 0 and r["shown"] == 0 for r in rows)
+        assert "possible_source" in trace.COLUMNS
+    finally:
+        YT.pop("flag")
+
+
 def test_verification_stops_after_two_earlier_copies_taken_earliest_first(tmp_path):
     YT["copies"] = [f"https://www.youtube.com/watch?v={i}" for i in ("c", "a", "b")]
     try:
