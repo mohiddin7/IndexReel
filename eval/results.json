@@ -32,5 +32,9 @@
 
   {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Full copies, trims, jump cuts and re-films demoted to shared footage", "k": 0, "n": 69, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/partial-result.md", "note": "22 fixtures, 8 trims, 7 jump cuts, 32 re-films."},
 
-  {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Recordings mixing two families", "k": 0, "bar": "0", "bar_op": "<=", "bar_k": 0, "result": "0", "source": "eval/partial-result.md"}
+  {"group": "Partial copies (frozen test: 16 partial copies, 69 controls)", "label": "Recordings mixing two families", "k": 0, "bar": "0", "bar_op": "<=", "bar_k": 0, "result": "0", "source": "eval/partial-result.md"},
+
+  {"group": "Same view, filmed twice (2 static views, 2 takes each, with WhatsApp copies)", "label": "Pairs of different recordings merged automatically", "k": 0, "n": 24, "bar": "0", "bar_op": "<=", "bar_k": 0, "source": "eval/sameview-result.md", "note": "Same-view negatives 0/8, cross-view 0/16. The matcher alone merged all 8 same-view negatives; the cheap verifier said different on all 8."},
+  {"group": "Same view, filmed twice (2 static views, 2 takes each, with WhatsApp copies)", "label": "Same-view negatives merged automatically", "k": 0, "n": 8, "source": "eval/sameview-result.md"},
+  {"group": "Same view, filmed twice (2 static views, 2 takes each, with WhatsApp copies)", "label": "WhatsApp copies in their own recording", "k": 4, "n": 4, "bar": "all", "bar_op": ">=", "bar_k": 4, "source": "eval/sameview-result.md"}
  ]}
