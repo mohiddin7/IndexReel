@@ -217,7 +217,8 @@ def test_stranger_gets_one_access_message_a_week(tmp_path):
     b.poll()
     now[0] += 2 * DAY
     b.poll()
-    msg = "IndexReel answers accounts on its access list. To be added, email ask@example.org."
+    msg = ("IndexReel runs on a small budget, so it only answers accounts on its access list, with daily limits to "
+           "prevent abuse. To be added, email ask@example.org.")
     assert fake.sent == [("2", msg, None), ("4", msg, None)] and b.calls.found == [] and b.calls.read == []
 
 
@@ -413,6 +414,14 @@ def test_every_template_fits_280_at_its_longest_fields():
             assert bot.weighted_len(text) <= 280, (kind, bot.weighted_len(text))
             assert not bot.BANNED.search(text.replace(LONGEST["url"], ""))
             assert "://" not in text or kind == "found"
+
+
+def test_access_message_with_the_real_contact_fits():
+    text = bot.render("access", email="indexreel@warmhop.com")
+    assert text == ("IndexReel runs on a small budget, so it only answers accounts on its access list, with daily limits "
+                    "to prevent abuse. To be added, email indexreel@warmhop.com.")
+    assert bot.weighted_len(text) <= 280
+    assert "warmhop" not in Path(bot.__file__).read_text()  # the address comes from BOT_CONTACT_EMAIL only
 
 
 def test_render_refuses_a_reply_longer_than_x_allows(monkeypatch):
@@ -612,3 +621,26 @@ def test_frame_guard_passes_only_a_clear_false(tmp_path, answer, blocked):
 def test_frame_guard_without_a_frame_blocks(tmp_path):
     j = Judge({"topic_blocked": False})
     assert bot.frame_guard("rain", tmp_path / "missing.mp4", judge=j) == (True, 0.0) and j.content is None
+
+
+# --- allow helper -------------------------------------------------------------------------------------------------
+
+def test_allow_appends_a_numeric_id_once(tmp_path, capsys):
+    d = tmp_path / "bot"
+    bot.main(["allow", "123", "--dir", str(d)])
+    bot.main(["allow", "123", "--dir", str(d)])
+    bot.main(["allow", " 456 ", "--dir", str(d)])
+    assert (d / "allowlist.txt").read_text() == "123\n456\n"
+    for bad in ("@someone", "12a", "", "-5"):
+        with pytest.raises(SystemExit):
+            bot.main(["allow", bad, "--dir", str(d)])
+    assert (d / "allowlist.txt").read_text() == "123\n456\n"
+
+
+def test_allow_keeps_a_file_without_a_final_newline_intact(tmp_path):
+    d = tmp_path / "bot"
+    d.mkdir()
+    (d / "allowlist.txt").write_text("# my list\n111")
+    bot.main(["allow", "222", "--dir", str(d)])
+    assert (d / "allowlist.txt").read_text() == "# my list\n111\n222\n"
+    assert bot.Bot(Fake(), d, "auto").allowlist() == {"111", "222"}

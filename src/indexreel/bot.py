@@ -2,6 +2,7 @@
 
   indexreel bot [--dry-run | --review | --auto] [--once] [--mentions FILE]
   indexreel bot approve <mention id>
+  indexreel bot allow <numeric X user id>
 
 Polls the account's mentions. An account on data/bot/allowlist.txt (numeric X user ids) is answered about the first
 video found from its mention up the reply chain (at most HOPS posts up). One Muse Spark call reads the mention and the
@@ -55,7 +56,8 @@ TEMPLATES = {
                  "That doesn't mean none exists.",
     "no_video": "I couldn't find a video in this post.",
     "topic": "IndexReel doesn't analyse this topic.",
-    "access": "IndexReel answers accounts on its access list. To be added, email {email}.",
+    "access": "IndexReel runs on a small budget, so it only answers accounts on its access list, with daily limits to "
+              "prevent abuse. To be added, email {email}.",
     "ask": "Want me to check whether this video was online before this post's date? Reply yes.",
     "ask_other": "I can only check whether this video was online before this post's date. Reply yes if you want that.",
 }
@@ -593,9 +595,29 @@ def parse(argv):
     return ap.parse_args(argv)
 
 
+def allow(user_id, root):
+    """Add a numeric X user id to <root>/allowlist.txt, once."""
+    uid = user_id.strip()
+    if not uid.isdigit():
+        raise SystemExit("bot: an X user id is a number (handles change, ids don't)")
+    f = Path(root) / "allowlist.txt"
+    old = f.read_text() if f.exists() else ""
+    if uid in {ln.strip() for ln in old.splitlines()}:
+        return print(f"bot: {uid} is already on the access list")
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(old + ("\n" if old and not old.endswith("\n") else "") + uid + "\n")
+    print(f"bot: added {uid} to the access list")
+
+
 def main(argv=None):
     argv = list(argv or [])
     contact = os.environ.get(CONTACT)
+    if argv[:1] == ["allow"]:
+        ap = argparse.ArgumentParser(prog="indexreel bot allow")
+        ap.add_argument("id", help="numeric X user id")
+        ap.add_argument("--dir", type=Path, default=ROOT)
+        a = ap.parse_args(argv[1:])
+        return allow(a.id, a.dir)
     if argv[:1] == ["approve"]:
         ap = argparse.ArgumentParser(prog="indexreel bot approve")
         ap.add_argument("id")
