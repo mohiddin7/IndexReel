@@ -58,6 +58,36 @@ def read_audit(run):
     return [json.loads(line) for line in p.read_text().splitlines() if line.strip()] if p.exists() else []
 
 
+SYNC_IMAGE = re.compile(r"[A-Za-z0-9._-]+\.jpe?g")
+
+
+def read_sync(path):
+    """The matcher's sound-sync result (result.json beside its three frame-pair images), checked; ValueError when it is not usable.
+
+    Private footage: the live page shows it when started with --sync, and an export never carries it."""
+    path = Path(path)
+    r = json.loads(path.read_text())
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)
+    if r.get("version") != 1:
+        raise ValueError("sync result: unknown version")
+    if not all(isinstance(r.get(k), str) and r[k] for k in ("a", "b")):
+        raise ValueError("sync result: a and b must be names")
+    if not all(num(r.get(k)) for k in ("lag_s", "peak", "sidelobe_ratio")):
+        raise ValueError("sync result: lag_s, peak and sidelobe_ratio must be numbers")
+    if not all(r.get(k) is None or num(r[k]) for k in ("clap_lag_s", "metadata_lag_s")):
+        raise ValueError("sync result: clap_lag_s and metadata_lag_s must be numbers or null")
+    pairs = r.get("pairs")
+    if not (isinstance(pairs, list) and len(pairs) == 3):
+        raise ValueError("sync result: it needs exactly 3 frame pairs")
+    for p in pairs:
+        if not (isinstance(p, dict) and num(p.get("a_s")) and num(p.get("b_s")) and isinstance(p.get("image"), str) and SYNC_IMAGE.fullmatch(p["image"])):
+            raise ValueError("sync result: each pair needs a_s, b_s and an image file name")
+        if not (path.parent / p["image"]).is_file():
+            raise ValueError(f"sync result: no image {p['image']}")
+    return {k: r.get(k) for k in ("a", "b", "lag_s", "peak", "sidelobe_ratio", "clap_lag_s", "metadata_lag_s")} | {
+        "pairs": [{k: p[k] for k in ("a_s", "b_s", "image")} for p in pairs]}
+
+
 TRACE_ID = re.compile(r"[A-Za-z0-9._-]+")
 
 
@@ -235,7 +265,17 @@ def export(run, out, claims=None, results=None):
     return out / "index.html"
 
 
-def state(run, claims=None, results=None):
+def sync_view(path):
+    """read_sync for the page: None without --sync, {"error": ...} when the file is not usable, so the page says why."""
+    if not path:
+        return None
+    try:
+        return read_sync(path)
+    except (ValueError, OSError) as e:
+        return {"error": str(e)}
+
+
+def state(run, claims=None, results=None, sync=None):
     """Everything the page draws: pairs with their computed and current band, and recordings with human decisions applied."""
     run = Path(run)
     clips = json.loads((run / "clips.json").read_text())["clips"]
@@ -279,7 +319,7 @@ def state(run, claims=None, results=None):
             "evidence": r["evidence"], "evidence_times": [[t, round(t + offset, 3)] for t in times],
             "verify": {k[7:]: r[k] for k in r if k.startswith("verify_") and r[k]}})
     claim_rows, claim_review = read_claim_rows(claims) if claims is not None else (None, False)
-    return {"run": meta, "claims": claims is not None, "claim_rows": claim_rows, "claim_review": claim_review, "results": read_results(results) if results else None, "trace": read_trace(run), "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
+    return {"run": meta, "claims": claims is not None, "claim_rows": claim_rows, "claim_review": claim_review, "results": read_results(results) if results else None, "trace": read_trace(run), "sync": sync_view(sync), "thresholds": th, "clips": clips, "pairs": pairs, "recordings": recs, "suggestions": suggestions, "clip_decisions": clip_decisions, "audit": audit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -335,7 +375,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             return self.reply(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         if path == "/api/state":
-            return self.reply(200, state(run, claims_file(run, self.server.claims), self.server.results))
+            return self.reply(200, state(run, claims_file(run, self.server.claims), self.server.results, self.server.sync))
         if path == "/api/withdraw":
             try:
                 return self.reply(200, withdraw_view(run, claims_file(run, self.server.claims), parse_qs(urlsplit(self.path).query).get("recording", [""])[0]))
@@ -345,6 +385,13 @@ class Handler(BaseHTTPRequestHandler):
             f, root = (run / path[1:]).resolve(), (run / "frames").resolve()
             if f.is_file() and f.is_relative_to(root):
                 return self.reply(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+        if path.startswith("/sync/") and self.server.sync:  # the matcher's frame pairs, only those its result.json names
+            try:
+                names = {p["image"] for p in read_sync(self.server.sync)["pairs"]}
+            except (ValueError, OSError):
+                names = set()
+            if path[6:] in names:
+                return self.reply(200, (self.server.sync.parent / path[6:]).read_bytes(), "image/jpeg")
         if path.startswith("/trace/") and path.endswith(".jpg"):  # evidence images of the earlier-copy search
             f, root = (run / path[1:]).resolve(), (run / "trace").resolve()
             if f.is_file() and f.is_relative_to(root):
@@ -391,14 +438,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(409, {"error": str(e)})
         except (ValueError, KeyError, OSError, AttributeError) as e:
             return self.reply(400, {"error": str(e)})
-        self.reply(200, state(run, claims_file(run, self.server.claims), self.server.results))
+        self.reply(200, state(run, claims_file(run, self.server.claims), self.server.results, self.server.sync))
 
 
-def make_server(run=None, port=0, claims=None, results=None, workdir=None, steps=None):
+def make_server(run=None, port=0, claims=None, results=None, workdir=None, steps=None, sync=None):
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.run = Path(run).resolve() if run else None
     server.runs = Runs(workdir, **({"steps": steps} if steps else {})) if workdir else None  # new-run mode: runs live under /r/<id>/
     server.results = Path(results).resolve() if results else None
+    server.sync = Path(sync).resolve() if sync else None  # private sound-sync result, live page only
     server.claims = Path(claims).resolve() if claims else None  # claims sheet for the withdraw panel, read on each request
     return server
 
@@ -410,10 +458,15 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--results", type=Path, default=RESULTS if RESULTS.is_file() else None, help="results JSON shown in the Results section (default: eval/results.json)")
     ap.add_argument("--export", type=Path, metavar="DIR", help="write a read-only static copy to DIR instead of serving")
+    ap.add_argument("--sync", type=Path, metavar="RESULT.JSON", help="the matcher's sound-sync result, shown in a Same moment box; private, so never with --export")
     ap.add_argument("--claims", type=Path, help="claims sheet (clip, claim_id, claim_text, and from `indexreel claims` quote and status) for the withdraw panel; default: claims.csv in the run directory")
     args = ap.parse_args(argv)
     if bool(args.run) == bool(args.workdir):
         ap.error("give a run directory or --workdir, not both and not neither")
+    if args.sync and args.export:
+        ap.error("--sync is private footage and is never exported")
+    if args.sync and not args.sync.is_file():
+        ap.error(f"no sync result {args.sync}")
     if args.export and not args.run:
         ap.error("--export needs a run directory")
     for name in ("clips.json", "pairs.csv", "clusters.json", "run.json") if args.run else ():
@@ -429,7 +482,7 @@ def main(argv=None):
         except ValueError as e:
             ap.error(str(e))
         return
-    server = make_server(args.run, args.port, args.claims, args.results, args.workdir)
+    server = make_server(args.run, args.port, args.claims, args.results, args.workdir, sync=args.sync)
     print(f"http://127.0.0.1:{server.server_address[1]}/  (Ctrl-C to stop)")
     try:
         server.serve_forever()

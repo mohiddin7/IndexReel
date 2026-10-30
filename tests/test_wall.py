@@ -844,3 +844,81 @@ def test_trace_possible_source_images_reach_the_export_and_the_page_words_them_a
     js = wall.PAGE.read_text().split("function traceCard")[1].split("function traceBox")[0]
     assert "Possible earlier source: check it yourself" in js and "\"confirmed earlier copy\"" in js
     assert "p.posted_at" not in js and "corroborat" not in js
+
+
+def sync_dir(tmp_path, **over):
+    """A result.json as the matcher writes it for two cameras, with its three frame-pair images."""
+    d = tmp_path / "park_sync"
+    d.mkdir()
+    res = {"version": 1, "a": "park_a", "b": "park_b", "lag_s": 24.0, "peak": 0.91, "sidelobe_ratio": 7.5,
+           "clap_lag_s": 23.99, "metadata_lag_s": 24.0,
+           "pairs": [{"a_s": 10.0 * i, "b_s": 10.0 * i + 24.0, "image": f"pair{i}.jpg"} for i in (1, 2, 3)]} | over
+    for p in res["pairs"] if isinstance(res["pairs"], list) else []:
+        if isinstance(p, dict) and isinstance(p.get("image"), str) and "/" not in p["image"] and p["image"] != "missing.jpg":
+            (d / p["image"]).write_bytes(b"\xff\xd8" + p["image"].encode())
+    (d / "result.json").write_text(json.dumps(res))
+    return d / "result.json"
+
+
+def test_sync_reads_the_matchers_result(tmp_path):
+    s = wall.read_sync(sync_dir(tmp_path))
+    assert (s["a"], s["b"], s["lag_s"], s["clap_lag_s"], s["metadata_lag_s"]) == ("park_a", "park_b", 24.0, 23.99, 24.0)
+    assert [p["image"] for p in s["pairs"]] == ["pair1.jpg", "pair2.jpg", "pair3.jpg"] and s["peak"] == 0.91 and s["sidelobe_ratio"] == 7.5
+
+
+def test_sync_clap_and_clock_may_be_missing(tmp_path):
+    s = wall.read_sync(sync_dir(tmp_path, clap_lag_s=None, metadata_lag_s=None))
+    assert s["clap_lag_s"] is None and s["metadata_lag_s"] is None
+
+
+@pytest.mark.parametrize("over", [
+    {"lag_s": "24"}, {"lag_s": True}, {"peak": None}, {"a": ""}, {"pairs": []}, {"version": 2},
+    {"pairs": [{"a_s": 1, "b_s": 2, "image": "../x.jpg"}] * 3}, {"pairs": [{"a_s": 1, "b_s": 2, "image": "x.png"}] * 3},
+    {"pairs": [{"a_s": 1, "b_s": 2, "image": "missing.jpg"}] * 3}, {"clap_lag_s": "23.99"}])
+def test_sync_refuses_a_result_it_cannot_trust(tmp_path, over):
+    with pytest.raises(ValueError):
+        wall.read_sync(sync_dir(tmp_path, **over))
+
+
+def test_sync_reaches_the_live_state_and_the_images_are_served_only_from_its_folder(run, tmp_path):
+    f = sync_dir(tmp_path)
+    (tmp_path / "secret.jpg").write_bytes(b"nope")
+    assert wall.state(run)["sync"] is None and wall.state(run, sync=f)["sync"]["lag_s"] == 24.0
+    srv = wall.make_server(run, sync=f)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert json.loads(call(srv, "GET", "/api/state")[1])["sync"]["pairs"][0]["image"] == "pair1.jpg"
+        assert call(srv, "GET", "/sync/pair1.jpg") == (200, b"\xff\xd8pair1.jpg")
+        assert call(srv, "GET", "/sync/result.json")[0] == 404 and call(srv, "GET", "/sync/../secret.jpg")[0] == 404
+        assert call(srv, "GET", "/sync/%2e%2e/secret.jpg")[0] == 404
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_sync_is_never_served_without_the_flag(run, tmp_path):
+    sync_dir(tmp_path)
+    srv = wall.make_server(run)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert call(srv, "GET", "/sync/pair1.jpg")[0] == 404 and json.loads(call(srv, "GET", "/api/state")[1])["sync"] is None
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_sync_is_private_so_an_export_refuses_it_and_carries_none(run, tmp_path):
+    f = sync_dir(tmp_path)
+    out, page, data = exported(run, tmp_path)
+    assert data["state"]["sync"] is None and not (out / "sync").exists() and "pair1.jpg" not in page
+    with pytest.raises(SystemExit):
+        wall.main([str(run), "--export", str(tmp_path / "x"), "--sync", str(f)])
+
+
+def test_the_page_words_the_same_moment_box_as_exploratory_and_never_says_verified():
+    page = wall.PAGE.read_text()
+    box = page.split("function syncBox")[1].split("function withdrawBox")[0]
+    assert "Same moment" in page and "exploratory" in box.lower()
+    assert "sound lines up at" in box and "two cameras recorded the same moment" in box
+    assert "Checked against" in box and "a clap filmed by both" in box and "the files' clocks" in box
+    assert "verified" not in box.lower() and "true" not in box.lower().replace("true;", "")

@@ -83,7 +83,7 @@ table.res th { color: var(--muted); font-weight: 600; font-size: 13px; }
 <header>
   <h1>IndexReel clip wall <a id="newrun" class="small" href="../../" hidden>New run</a></h1>
   <div id="runinfo" class="muted small"></div>
-  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-trace" id="trace-nav" hidden>Earlier copies</a><a href="#h-claims" id="claims-nav" hidden>Claims</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
+  <nav aria-label="Sections"><a href="#h-todo">Needs a decision</a><a href="#h-recs">Recordings</a><a href="#h-trace" id="trace-nav" hidden>Earlier copies</a><a href="#h-sync" id="sync-nav" hidden>Same moment</a><a href="#h-claims" id="claims-nav" hidden>Claims</a><a href="#h-with">Withdraw</a><a href="#h-res">Results</a></nav>
 </header>
 <main>
   <section aria-labelledby="h-todo"><h2 id="h-todo">Needs a decision</h2><div id="todo"></div></section>
@@ -91,6 +91,7 @@ table.res th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <section aria-labelledby="h-ver"><h2 id="h-ver">The verifier changed these</h2><p class="muted small">Pairs where the verifier's answer moved the band the matcher gave.</p><div id="ver"></div></section>
   <section aria-labelledby="h-recs"><h2 id="h-recs">Recordings</h2><div id="recs"></div></section>
   <section aria-labelledby="h-trace" id="trace-sec" hidden><h2 id="h-trace">Earlier copies</h2><p class="muted small">Posts of the same footage found by searching for what each recording shows, not what any post says. A post time is when it was posted, not when it was filmed. This does not say whether any claim is true or false: read both sets of claims and decide.</p><div id="trace"></div></section>
+  <section aria-labelledby="h-sync" id="sync-sec" hidden><h2 id="h-sync">Same moment <span class="badge unresolved">exploratory</span></h2><div id="sync"></div></section>
   <section aria-labelledby="h-claims" id="claims-sec" hidden><h2 id="h-claims">Claims to review</h2><p class="muted small" id="claims-intro"></p><div id="claims"></div></section>
   <section aria-labelledby="h-with"><h2 id="h-with">Withdraw a recording</h2><div id="withdraw"></div></section>
   <section aria-labelledby="h-hand"><h2 id="h-hand">Decided by hand</h2><div id="hand"></div></section>
@@ -346,6 +347,26 @@ function traceBox() {
   document.getElementById("trace").innerHTML = Object.entries(S.trace).map(([id, t]) => traceCard(id, t)).join("");
 }
 
+const signed = (x) => (x >= 0 ? "+" : "−") + num(Math.abs(x), 1);
+
+// two recordings whose sound lines up at one lag: the matcher's result, live page only (private footage)
+function syncBox() {
+  const sec = document.getElementById("sync-sec"), nav = document.getElementById("sync-nav"), s = S.sync;
+  sec.hidden = nav.hidden = !s;
+  if (!s) return;
+  if (s.error) {
+    document.getElementById("sync").innerHTML = `<p class="err" role="alert">Sync result not usable: ${esc(s.error)}</p>`;
+    return;
+  }
+  const checks = [s.clap_lag_s != null ? `a clap filmed by both (${num(s.clap_lag_s)} s)` : "", s.metadata_lag_s != null ? `the files' clocks (${num(s.metadata_lag_s, 0)} s)` : ""].filter(Boolean);
+  const checked = checks.length ? `<p class="small muted">Checked against ${checks.join(" and ")}.</p>` : "";
+  const pairs = s.pairs.map((p) => `<figure style="margin:0 0 10px"><img src="sync/${encodeURIComponent(p.image)}" alt="${esc(s.a)} at ${num(p.a_s, 1)} s and ${esc(s.b)} at ${num(p.b_s, 1)} s" style="max-width:100%"><figcaption class="small muted">${esc(s.a)} ${num(p.a_s, 1)} s · ${esc(s.b)} ${num(p.b_s, 1)} s</figcaption></figure>`).join("");
+  document.getElementById("sync").innerHTML = `<div class="card">
+    <p><strong>These two recordings' sound lines up at ${signed(s.lag_s)} s: two cameras recorded the same moment.</strong></p>
+    <p class="small muted">${esc(s.a)} and ${esc(s.b)}. Exploratory: this method is not scored yet. It compares sound only and says nothing about whether any claim about the footage holds.</p>
+    ${pairs}${checked}<p class="small muted">Sound match: peak ${num(s.peak)}, sidelobe ratio ${num(s.sidelobe_ratio, 1)}. Private footage: this box is not in an export.</p></div>`;
+}
+
 function withdrawBox() {
   const box = document.getElementById("withdraw");
   if (!S.claims) {
@@ -444,6 +465,7 @@ function render() {
   const hand = S.pairs.filter((p) => p.decision && p.band !== "unresolved");
   claimsBox();
   traceBox();
+  syncBox();
   withdrawBox();
   resultsBox();
   const dismissed = Object.entries(S.clip_decisions).filter(([, d]) => d.action === "dismiss_compilation");
