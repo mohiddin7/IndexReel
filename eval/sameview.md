@@ -78,3 +78,26 @@ No new constant is added, and nothing was set on the same-place data. As before,
 Other changes between `66a179b` and `8c05314` in `src/`: a new `trace` command and its entry in the command list (`cli.py`). This test does not use them, and `indexreel match` is unchanged.
 
 Run from a detached checkout of `8c05314`. The commands, bars and decision rule are those of the protocol and Amendment 1.
+
+## Amendment 3 (Oct 30, before any matcher or verify run on these clips)
+
+**Reason:** the morning shoot gave one view, `viewa`, as two takes, `IMG_4217.MOV` and `IMG_4218.MOV` in `data/sameview/raw/`. They break two rules of the Data section. I decided to use them with the changes below rather than film `viewa` again. The footage step has looked at their frames and metadata. No `indexreel match`, verify or scorer run has touched them, and no WhatsApp copy exists yet. These are the only two takes of this view; no take was left out.
+
+**What the clips are**, from their metadata: landscape 1920×1080, H.264 at about 30 fps, with AAC sound and a keyframe every 0.967 s. The phone was resting (not hand-held) in one place for both, as the frames show. Take 1 is 67.1 s long and take 2 is 46.2 s.
+
+**Deviation 1, the gap.** 44 s passed between the end of take 1 and the start of take 2 (111 s start to start), where the rule asks for at least 3 minutes. The two recordings still do not overlap in time. A shorter gap leaves less time for light, traffic and sound to change, so the two takes are more alike. That makes the same-view negative harder for the pipeline, never easier, and cannot make bar 1 pass more easily.
+
+**Deviation 2, the length, and one fixed cut.** The takes are longer than the 15 to 20 s asked for. Each raw take is cut by one rule, the same for both, fixed before any run and not chosen by looking for a segment:
+
+- keep 2.0 s to 22.0 s from the start;
+- use stream copy, with no re-encode: `ffmpeg -ss 2.0 -i <raw> -t 20.0 -map 0:v:0 -map 0:a:0 -c copy <out>.mov`;
+- with a keyframe every 0.967 s, stream copy starts at the keyframe at 1.933 s. The cut's real start and duration are read with ffprobe and recorded before the run;
+- the cuts are saved as `data/sameview/raw/viewa_1.mov` and `viewa_2.mov`, and the full takes and every file that is not part of this test are moved to `data/shoot_oct30_other/`, with a log of the renames.
+
+The WhatsApp copies are made **from the cut files**, one round-trip each, as the protocol asks for every recording. Cutting a full-length WhatsApp copy separately would start at a different keyframe and leave the raw clip and its copy covering slightly different spans.
+
+**Disclosure:** the footage step saw these clips' frames before this rule was fixed. The 2.0 to 22.0 s rule was set without looking at the frames: it is the first 20 s after a 2 s settle, and it is not a window picked for what happens in it.
+
+**`viewb`** is filmed this afternoon to the original rules (a separate take at least 3 minutes later, 15 to 20 s, braced, landscape 1080p at 30 fps) and is not cut.
+
+**What does not change:** the code (a detached checkout of `8c05314`, as Amendment 2 says), the commands, the bars, the decision rule and the manifest columns. `viewa` enters the manifest as takes `1` and `2` with the files above.
