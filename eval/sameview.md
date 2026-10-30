@@ -125,3 +125,7 @@ So the phone rested in both takes, and the framing shift between them is about a
 **`viewa` is unchanged.** `viewa_1.mov` and `viewa_2.mov` carry no rotation tag (checked with `ffprobe`). Before the run, every frame of both clips is decoded with the `8c05314` reader and with the patched reader, and the two must be pixel-for-pixel equal. If any frame differs, I stop and write it down here before going on.
 
 **What does not change:** the commands, the bars, the decision rule and the manifest columns.
+
+## Clarification 5a (Oct 30, before any matcher or verify run on these clips)
+
+Amendment 5 says a WhatsApp copy has the rotation baked in and comes out upright. The copies don't. Measured with `ffprobe`, `viewb_1_whatsapp.mp4` and `viewb_2_whatsapp.mp4` (848x480) keep the -180 rotation tag, as their raw cuts do. `viewa_1_whatsapp.mp4` and `viewa_2_whatsapp.mp4` carry no tag, like the `viewa` cuts. So at `8c05314`, a raw `viewb` clip and its own copy would both have been read upside down. The 180 degree mismatch Amendment 5 describes for `viewb`'s raw-vs-copy pairs, and for its same-view negatives, would not have arisen. It would have arisen between the views instead: every `viewb` clip read upside down against every `viewa` clip read upright. That would make the cross-view pairs easier to keep apart, while `verify`, which reads through `ffmpeg`, sees all of them upright. The conclusion is unchanged: the run uses `8c05314` plus `8272c1a`, so every clip is read upright by the matcher and the verifier alike. Nothing else changes.
