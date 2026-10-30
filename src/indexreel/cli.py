@@ -31,7 +31,8 @@ STAGES = [("fetch", "indexreel.fetch", "download the videos of posts you name"),
           ("claims", "indexreel.claims", "list the claims each post's caption makes about its footage"),
           ("withdraw", "indexreel.withdraw", "list the claims that lose video support when a recording is withdrawn"),
           ("trace", "indexreel.trace", "look for earlier uploads of each recording on the web"),
-          ("wall", "indexreel.wall", "open a run in a local browser page")]
+          ("wall", "indexreel.wall", "open a run in a local browser page"),
+          ("bot", "indexreel.bot", "answer posts on X that tag the IndexReel account")]
 
 
 def thumb(frame):
