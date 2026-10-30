@@ -347,8 +347,6 @@ function traceBox() {
   document.getElementById("trace").innerHTML = Object.entries(S.trace).map(([id, t]) => traceCard(id, t)).join("");
 }
 
-const signed = (x) => (x >= 0 ? "+" : "−") + num(Math.abs(x), 1);
-
 // two recordings whose sound lines up at one lag: the matcher's result, live page only (private footage)
 function syncBox() {
   const sec = document.getElementById("sync-sec"), nav = document.getElementById("sync-nav"), s = S.sync;
@@ -358,12 +356,14 @@ function syncBox() {
     document.getElementById("sync").innerHTML = `<p class="err" role="alert">Sync result not usable: ${esc(s.error)}</p>`;
     return;
   }
+  // lag_s: a sound at time t in a is at t + lag_s in b, so a negative lag means b's recording began after a's
+  const order = s.lag_s === 0 ? `${esc(s.b)} and ${esc(s.a)} started together` : `${esc(s.b)} started ${num(Math.abs(s.lag_s), 1)} s ${s.lag_s < 0 ? "after" : "before"} ${esc(s.a)}`;
   const checks = [s.clap_lag_s != null ? `a clap filmed by both (${num(s.clap_lag_s)} s)` : "", s.metadata_lag_s != null ? `the files' clocks (${num(s.metadata_lag_s, 0)} s)` : ""].filter(Boolean);
   const checked = checks.length ? `<p class="small muted">Checked against ${checks.join(" and ")}.</p>` : "";
   const pairs = s.pairs.map((p) => `<figure style="margin:0 0 10px"><img src="sync/${encodeURIComponent(p.image)}" alt="${esc(s.a)} at ${num(p.a_s, 1)} s and ${esc(s.b)} at ${num(p.b_s, 1)} s" style="max-width:100%"><figcaption class="small muted">${esc(s.a)} ${num(p.a_s, 1)} s · ${esc(s.b)} ${num(p.b_s, 1)} s</figcaption></figure>`).join("");
   document.getElementById("sync").innerHTML = `<div class="card">
-    <p><strong>These two recordings' sound lines up at ${signed(s.lag_s)} s: two cameras recorded the same moment.</strong></p>
-    <p class="small muted">${esc(s.a)} and ${esc(s.b)}. Exploratory: this method is not scored yet. It compares sound only and says nothing about whether any claim about the footage holds.</p>
+    <p><strong>These two recordings' sound lines up: ${order}. Two cameras recorded the same moment.</strong></p>
+    <p class="small muted">Exploratory: this method is not scored yet. It compares sound only and says nothing about whether any claim about the footage holds.</p>
     ${pairs}${checked}<p class="small muted">Sound match: peak ${num(s.peak)}, sidelobe ratio ${num(s.sidelobe_ratio, 1)}. Private footage: this box is not in an export.</p></div>`;
 }
 

@@ -919,6 +919,7 @@ def test_the_page_words_the_same_moment_box_as_exploratory_and_never_says_verifi
     page = wall.PAGE.read_text()
     box = page.split("function syncBox")[1].split("function withdrawBox")[0]
     assert "Same moment" in page and "exploratory" in box.lower()
-    assert "sound lines up at" in box and "two cameras recorded the same moment" in box
+    assert "sound lines up" in box and "Two cameras recorded the same moment" in box
+    assert "signed(" not in box and "s.lag_s < 0" in box and '"after"' in box and '"before"' in box and "started together" in box
     assert "Checked against" in box and "a clap filmed by both" in box and "the files' clocks" in box
     assert "verified" not in box.lower() and "true" not in box.lower().replace("true;", "")
