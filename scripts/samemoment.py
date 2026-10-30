@@ -1,7 +1,7 @@
 """Same moment, different camera: the scorer of eval/samemoment.md (frozen with it). Media is read as data only.
 
   .venv/bin/python -I scripts/samemoment.py claps        propose each clip's clap time (largest sound onset in its last 8 s)
-  .venv/bin/python -I scripts/samemoment.py controls     make the 4 constructed control clips
+  .venv/bin/python -I scripts/samemoment.py controls     make the constructed control clips
   .venv/bin/python -I scripts/samemoment.py score        S0, S1, S2 and P on every pair; bars 1 to 3
   MODEL_API_KEY=... .venv/bin/python -I scripts/samemoment.py spark    M on its 64 pairs, at most $1.50; writes the anchor cards
   .venv/bin/python -I scripts/samemoment.py report       bar 4 from the checked cards, and the whole verdict
@@ -42,6 +42,7 @@ SPARK_CAP, SPARK_SIZE, SPARK_MAX_OUT = 1.50, 240, 4000
 CONTROLS = [  # (control clip, its picture source, its sound source, the clip it is paired with)
     ("swap_street", "street_t2_iphone", "street_t1_iphone", "street_t1_glasses"),
     ("swap_talk", "talk_t2_iphone", "talk_t1_iphone", "talk_t1_glasses"),
+    ("swap_crossing", "crossing_t2_iphone", "crossing_t1_iphone", "crossing_t1_glasses"),  # Amendment 2: replaces swap_talk
 ]
 MUSIC = [("park_t1_iphone", 0.0, "street2_t1_glasses", 5.0), ("talk_t1_glasses", 0.0, "crossing_t2_iphone", 5.0)]
 
@@ -272,19 +273,26 @@ def claps():
 
 
 def controls(m=None):
-    """The 4 constructed controls, written to data/samemoment/controls/. They go into the manifest with kind `control`
-    and the clap_s given in `controls.csv`; they are scored only in the control pairs."""
+    """The constructed controls whose source clips exist (Amendment 2), written to data/samemoment/controls/. They go
+    into the manifest with kind `control` and the clap_s given in `controls.csv`; they are scored only in the control pairs."""
     m = m or manifest()
     track = D / "music" / TRACK[0]
     assert hashlib.sha256(track.read_bytes()).hexdigest() == TRACK[1], "music track is not the one named in the protocol"
     out = D / "controls"
     out.mkdir(exist_ok=True)
     rows = []
-    for name, pic, snd, _ in CONTROLS:
+    have = lambda *cs: all(c in m and m[c]["clap_s"] is not None for c in cs)  # Amendment 2: a take may be missing
+    for name, pic, snd, partner in CONTROLS:
+        if not have(pic, snd, partner):
+            print(f"{name}: not built, a source clip is missing")
+            continue
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path(pic, m)), "-i", str(path(snd, m)), "-map", "0:v:0", "-map", "1:a:0",
                         "-shortest", "-c:v", "libx264", "-crf", "18", "-c:a", "aac", str(out / f"{name}.mp4")], check=True)
         rows.append({"file": f"controls/{name}.mp4", "clap_s": min(m[pic]["clap_s"], m[snd]["clap_s"])})
     for a, sa, b, sb in MUSIC:
+        if not have(a, b):
+            print(f"music_{a}~music_{b}: not built, a source clip is missing")
+            continue
         for c, start in ((a, sa), (b, sb)):
             own = pcm(path(c, m))
             mus = pcm(track)
@@ -530,7 +538,7 @@ def selftest():
     assert rule_s2({**base, "sound_z": 3, "landmark": 0.05, "landmark_lag": 4.1}) and not rule_s2({**base, "sound_z": 3, "landmark": 0.02, "landmark_lag": 4.1})
     assert found_lag({**base, "sound_z": 3, "landmark": 0.05, "landmark_lag": 4.1}) == 4.1
 
-    # pairs from a full manifest: 12 positives, 264 negatives per form (20 same place, 16 lookalike), 4 controls
+    # pairs from a full manifest: 12 positives, 264 negatives per form (20 same place, 16 lookalike), 5 controls
     with tempfile.TemporaryDirectory() as tmp:
         f = Path(tmp) / "m.csv"
         rows = []
@@ -556,8 +564,24 @@ def selftest():
     kinds = Counter(p[2] for p in raw)
     assert kinds["positive"] == 12 and sum(v for k, v in kinds.items() if k != "positive") == 264, kinds
     assert kinds["same_place_other_time"] == 20 and kinds["lookalike"] == 16, kinds
-    assert sum(1 for p in ps if p[3] == "copy") == 264 and sum(1 for p in ps if p[2] == "control") == 4
+    assert sum(1 for p in ps if p[3] == "copy") == 264 and sum(1 for p in ps if p[2] == "control") == len(CONTROLS) + len(MUSIC)
     assert all(p[0].endswith("_iphone") for p in ps if p[2] == "positive")
+
+    # Amendment 2 layout: 5 takes with both clips, street2's iPhone clip alone, no copies, the 3 controls that can be built
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "m.csv"
+        clips = [(sc, t, sc, d) for sc, t in (("street", "1"), ("street", "2"), ("crossing", "1"), ("crossing", "2"), ("talk", "1"))
+                 for d in ("iphone", "glasses")] + [("street2", "1", "street", "iphone")]
+        with open(f, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=["file", "scene", "place_kind", "take", "device", "kind", "original", "clap_s"])
+            w.writeheader()
+            w.writerows({"file": f"raw/{sc}_t{t}_{d}.mov", "scene": sc, "place_kind": pk, "take": t, "device": d, "kind": "raw",
+                         "original": "", "clap_s": "30"} for sc, t, pk, d in clips)
+            built = ["swap_street", "swap_crossing", "music_talk_t1_glasses", "music_crossing_t2_iphone"]  # what controls() can build
+            w.writerows({"file": f"controls/{c}.mp4", "scene": "control", "place_kind": "control", "take": c, "device": "control",
+                         "kind": "control", "original": "", "clap_s": "30"} for c in built)
+        kinds = Counter(p[2] for p in pairs(manifest(f)))
+    assert kinds == {"positive": 5, "same_place_other_time": 8, "lookalike": 4, "cross_scene": 38, "control": 3}, kinds
     # controls pair with each other or their partner, never with real clips of a control's own picture take
     assert ("swap_street", "street_t1_glasses", "control", "raw") in ps
 
