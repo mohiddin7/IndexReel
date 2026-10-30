@@ -75,11 +75,15 @@ def read_trace(run):
     root = (run / "trace").resolve()
     out = {}
     for r in rows:
-        rec = out.setdefault(r["recording"], {"searched": 0, "leak": False, "claimed": "", "copies": []})
+        rec = out.setdefault(r["recording"], {"searched": 0, "leak": False, "claimed": "", "copies": [], "possible": []})
         rec["searched"] += r["fetch"] == "ok"
         rec["leak"] |= r.get("leak_exposed") == "1"
         rec["claimed"] = rec["claimed"] or r.get("claimed_date") or ""
+        img = (run / r["evidence"]).resolve() if r["evidence"] else None
+        evidence = r["evidence"] if img and img.is_file() and img.is_relative_to(root) else ""
         if r["confirmed"] != "1":
+            if r.get("possible_source") == "1":  # a lead to check by eye: no date, never a copy
+                rec["possible"].append({"url": r["url"], "platform": r["platform"], "account": r["account"], "evidence": evidence})
             continue
         caption, clip = "", r["clip"]
         if TRACE_ID.fullmatch(r["recording"]) and TRACE_ID.fullmatch(clip):
@@ -88,12 +92,11 @@ def read_trace(run):
                 caption = str(json.loads(side.read_text()).get("caption") or "")[:600]
             except (OSError, ValueError):
                 pass
-        img = (run / r["evidence"]).resolve() if r["evidence"] else None
         rec["copies"].append({
             "clip": clip, "url": r["url"], "platform": r["platform"], "account": r["account"], "posted_at": r["posted_at"],
             "source": r["source"], "earlier": r["earlier"] or None, "shown": r["shown"] == "1",
             "leak_copy": r.get("leak_copy") == "1", "date_check": r.get("date_check") or "", "caption": caption,
-            "evidence": r["evidence"] if img and img.is_file() and img.is_relative_to(root) else ""})
+            "evidence": evidence})
     return out
 
 
@@ -221,7 +224,7 @@ def export(run, out, claims=None, results=None):
             (out / p["evidence"]).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, out / p["evidence"])
     for rec in (s["trace"] or {}).values():
-        for c in rec["copies"]:
+        for c in rec["copies"] + rec["possible"]:
             if c["evidence"]:
                 (out / c["evidence"]).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(run / c["evidence"], out / c["evidence"])

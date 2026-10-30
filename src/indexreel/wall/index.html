@@ -326,11 +326,17 @@ function traceCard(id, t) {
         ${claims.length ? `<ul class="claims small">${claims.map((r) => `<li><strong>${esc(r.claim_id)}</strong> ${esc(r.claim_text)}</li>`).join("")}</ul>` : `<div class="small muted">none approved</div>`}
       </div></div>`;
   } else {
-    head = `<div>No earlier upload of this footage was found among ${esc(t.searched)} post${t.searched === 1 ? "" : "s"} searched. That does not mean the footage is new.</div>`;
+    head = `<div>No ${t.possible.length ? "confirmed earlier copy" : "earlier upload of this footage"} was found among ${esc(t.searched)} post${t.searched === 1 ? "" : "s"} searched. That does not mean the footage is new.</div>`;
   }
   const list = others.length ? `<div class="small" style="margin-top:8px"><strong>${shown ? "Other" : "Confirmed"} copies</strong>${others.map((c) => copyLine(c)).join("")}</div>` : "";
+  const lead = (p) => {
+    const url = safeUrl(p.url), link = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : "no link";
+    const img = p.evidence ? `<img src="${p.evidence.split("/").map(encodeURIComponent).join("/")}" alt="aligned frames of this recording and the possible source" style="max-width:340px">` : "";
+    return `<div style="margin-top:6px">${esc(p.platform || "unknown platform")}, ${p.account ? `@${esc(String(p.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${img}</div>`;
+  };
+  const possible = t.possible.length ? `<div class="warn small"><strong>Possible earlier source: check it yourself</strong><div>Not confirmed as a copy, and no date is claimed for it. The verifier found a different recording of the same place or event; look at both before you decide.</div>${t.possible.map(lead).join("")}</div>` : "";
   const leak = t.leak ? `<div class="small muted" style="margin-top:6px">The web search for this recording also read fact-checking pages.</div>` : "";
-  return `<article class="card"><div><strong>${esc(id)}</strong> <span class="muted small">${members.map(nm).join(", ")}${claimed}</span></div>${head}${list}${leak}</article>`;
+  return `<article class="card"><div><strong>${esc(id)}</strong> <span class="muted small">${members.map(nm).join(", ")}${claimed}</span></div>${head}${list}${possible}${leak}</article>`;
 }
 
 function traceBox() {

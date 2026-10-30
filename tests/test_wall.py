@@ -809,3 +809,38 @@ def test_trace_date_check_notes_and_still_no_corroborated_date(run):
     assert "2021-11-26" not in json.dumps(t)
     js = wall.PAGE.read_text()
     assert "this platform lets the uploader change the date" in js and "the post's own id agrees with this date" in js and "corroborat" not in js
+
+
+def possible_run(run):
+    """trace_run plus a possible_source column: r2's candidate is an unconfirmed lead, with its own image."""
+    trace_run(run)
+    f = run / "trace.csv"
+    head, *rows = f.read_text().splitlines()
+    rows[3] = rows[3].replace("cand3,10,,,,apart,,,0,1,0,0", "cand3,10,,,,apart,different,trace/r2/pairs/cand3/core.jpg,0,1,0,0")
+    f.write_text("\n".join([head + ",possible_source"] + [r + (",1" if r.startswith("r2,") else ",") for r in rows]) + "\n")
+    (run / "trace" / "r2" / "pairs" / "cand3").mkdir(parents=True)
+    (run / "trace" / "r2" / "pairs" / "cand3" / "core.jpg").write_bytes(b"\xff\xd8lead")
+
+
+def test_trace_possible_sources_are_kept_apart_from_confirmed_copies_and_carry_no_date(run):
+    possible_run(run)
+    t = wall.read_trace(run)
+    assert t["r2"]["copies"] == [] and [p["url"] for p in t["r2"]["possible"]] == ["https://example.org/v/3"]
+    p = t["r2"]["possible"][0]
+    assert p["evidence"] == "trace/r2/pairs/cand3/core.jpg" and "posted_at" not in p and "earlier" not in p and "shown" not in p
+    assert "2019-01-01" not in json.dumps(t["r2"]["possible"])
+    assert t["r1"]["possible"] == [] and all(not c["shown"] or c["clip"] == "cand1" for c in t["r1"]["copies"])
+
+
+def test_trace_without_a_possible_source_column_has_no_leads(run):
+    trace_run(run)
+    assert wall.read_trace(run)["r2"]["possible"] == []
+
+
+def test_trace_possible_source_images_reach_the_export_and_the_page_words_them_as_a_lead(run, tmp_path):
+    possible_run(run)
+    out, page, data = exported(run, tmp_path)
+    assert (out / "trace/r2/pairs/cand3/core.jpg").read_bytes() == b"\xff\xd8lead"
+    js = wall.PAGE.read_text().split("function traceCard")[1].split("function traceBox")[0]
+    assert "Possible earlier source: check it yourself" in js and "\"confirmed earlier copy\"" in js
+    assert "p.posted_at" not in js and "corroborat" not in js
