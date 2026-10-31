@@ -1,6 +1,6 @@
 # Same view, filmed twice: result (Oct 30 2026)
 
-Protocol: `eval/sameview.md`, with Amendments 1 to 5 and Clarification 5a, all committed before any run on these clips (the last is `898fc7a`). Code: a detached checkout of `8c05314` with matcher's reader fix `8272c1a` applied by `git apply` and nothing else (Amendment 5). Scorer: `scripts/sameview.py` from the same checkout, with no `--min-s`. The data is 2 static views, each filmed twice by me with the phone resting, cut to 20 s by one fixed rule, and a WhatsApp round-trip copy of each cut: 8 clips, 28 pairs. Run once, on Oct 30 from 23:08:35 to 23:11:02 UTC, with empty match and verify caches and no human decisions.
+Protocol: `eval/sameview.md`, with Amendments 1 to 5 and Clarification 5a, all committed before any run on these clips (the last is `898fc7a`). Code: a detached checkout of `8c05314` with the reader fix `8272c1a` applied by `git apply` and nothing else (Amendment 5). Scorer: `scripts/sameview.py` from the same checkout, with no `--min-s`. The data is 2 static views, each filmed twice by me with the phone resting, cut to 20 s by one fixed rule, and a WhatsApp round-trip copy of each cut: 8 clips, 28 pairs. Run once, on Oct 30 from 23:08:35 to 23:11:02 UTC, with empty match and verify caches and no human decisions.
 
 ## Verdict: PASS
 
@@ -30,7 +30,7 @@ Protocol: `eval/sameview.md`, with Amendments 1 to 5 and Clarification 5a, all c
 | same view | viewb_1_whatsapp ~ viewb_2 | 0.816 | 0.836 | merged | different, 1.00 | unresolved | differs (0.001) |
 | same view | viewb_1_whatsapp ~ viewb_2_whatsapp | 0.848 | 0.865 | merged | different, 1.00 | unresolved | differs (0.002) |
 
-On every positive, the cheap judge said `same` and named moving things in both clips, such as "a single black car passing left to right across the road" or "same two people with dog on corner island … matching passing vehicles timing". On every same-view negative it said `no` and named nothing, because the answer only asks for a detail on a `yes`. The 6 calls covered the 12 pairs once each (one anchor against 1 to 3 candidates per call). No answer was incomplete and no re-ask trigger fired. No link was shown as shared footage (`partial`), and no compilation was suggested.
+On every positive, the cheap judge said `same` and named moving things in both clips, such as "a single black car passing left to right across the road". On every same-view negative it said `no` and named nothing, because the answer only asks for a detail on a `yes`. The 6 calls covered the 12 pairs once each (one anchor against 1 to 3 candidates per call). No answer was incomplete and no re-ask trigger fired. No link was shown as shared footage (`partial`), and no compilation was suggested.
 
 ## What this says
 
@@ -50,11 +50,11 @@ On every positive, the cheap judge said `same` and named moving things in both c
 | raw/viewb_2.mov | a842c1acecc585dd2ffe0b9cc32ac8fc3a4b3220e254c4fa3d5c4a6d9cba2db0 |
 | manifest.csv | e12898cc09a933df5b49d17ba447405b4c7d8e108f12cc1362c3208615ec1aa6 |
 
-The WhatsApp copies are 848x480, 20.013 to 20.033 s long. The `viewb` copies keep the -180 tag (Clarification 5a). Footage matched each copy to its cut by duration, rotation tag and frame difference.
+The WhatsApp copies are 848x480, 20.013 to 20.033 s long. The `viewb` copies keep the -180 tag (Clarification 5a). Each copy was matched to its cut by duration, rotation tag and frame difference.
 
 **Code checks before the run** (Amendment 5): the source lines changed in the checkout are exactly those of `8272c1a`. `tests/test_rotation.py` passed 2 of 2 there. Both readers decoded every frame of `viewa_1` and `viewa_2` pixel for pixel the same (600 frames each). `run.json` records `git_commit` `8c05314`, because the fix was applied to the working tree, not committed. The changed files' sha256 values are: `cli.py` dbef1f85…, `localise.py` bb4858ac…, `match.py` 83a478c3…, `sscd.py` f91114b2…, `tests/test_rotation.py` 1d6aaf7a…. The SSCD model sha256 is 9f26bd4c….
 
-**Disclosed before the run:** the `viewa` takes are 44 s apart and were longer than asked (Amendment 3). The lower light in `viewb`'s second take makes its negatives a little easier, a bias toward a pass (Amendment 5). Footage and Mohiddin had seen the frames; the coordinator, matcher and I had not.
+**Disclosed before the run:** the `viewa` takes are 44 s apart and were longer than asked (Amendment 3). The lower light in `viewb`'s second take makes its negatives a little easier, a bias toward a pass (Amendment 5). I filmed both views and looked at their frames while sorting the files; no match, verify or scoring step had been run on them before this run.
 
 ## Limits
 
