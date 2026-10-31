@@ -98,3 +98,9 @@ As in v2, plus `enough_copies`, `date_check`, the number of `possible_source` le
 ## Clarification C1 (Oct 30 2026, after the inputs were made, before trace ran on any of them)
 
 n16's earlier upload on Bilibili and the qq.com copy its fact-check names could not be fetched, so n16 is kind none: it stays in the test and is scored as not found. `scripts/trace_inputs.py` at `70fc6f7` gives the edits in turn to the kind (b) cases only, so from n17 on each case has the next edit of the cycle: n17 flip, n18 slow motion (on top of the reported flip), n19 zoom, n20 compilation. The rule is unchanged; the list in Inputs assumed n16 would be kind (b). With 13 recordings trace makes at most 39 Data API searches. Nothing else changes.
+
+## Amendment 1 (Oct 31 2026, before trace ran on any v3 case)
+
+A run of the X bot on a post that is not a v3 case crashed trace. For one YouTube candidate, yt-dlp left only an audio format part (`<stem>.f251.webm`, 2.7 KB) and its info, with no merged video. `fetch.fetch` took that part as the video and said `ok`, and trace then read a sidecar that did not exist and stopped. The v3 run takes the same path. Commit `9b8204b` (with a test) accepts only a file named exactly `<stem>.<ext>`, so a leftover part is a failed fetch, which trace already records as `error no_video` for that candidate. The fix turns a crash into a counted fetch failure. It cannot add a candidate or a confirmed copy, so it cannot make a result look better. No v3 case was fetched, seen or run.
+
+The run uses the code exported at `70fc6f7` with `src/indexreel/fetch.py` from `9b8204b` and nothing else. Later commits on main that change the matcher's frame reading are not part of this test.
