@@ -529,7 +529,8 @@ def narrow(model, input_path, cdir, work, rows, log=print):
 
 def frame_at(path, t):
     import cv2
-    cap = cv2.VideoCapture(str(path))
+    from indexreel.match import open_video
+    cap = open_video(path)  # upright: the rotation tag applied
     cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, t) * 1000)
     ok, f = cap.read()
     cap.release()

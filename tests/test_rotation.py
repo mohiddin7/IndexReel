@@ -28,6 +28,19 @@ def test_every_reader_gives_upright_frames(tmp_path):
     assert (s["width"], s["height"]) == (180, 320) and s["frames"][0].shape[0] > s["frames"][0].shape[1]
 
 
+def test_trace_evidence_frames_and_the_bot_frame_check_are_upright(tmp_path, monkeypatch):
+    from indexreel import bot, cli, trace
+    tagged, frames = rotated(tmp_path)
+    assert trace.frame_at(tagged, 1.0).shape[:2] == (320, 180)
+    seen = []
+    monkeypatch.setattr(cli, "thumb", lambda f: seen.append(f.shape[:2]) or f)
+    class Judge:
+        def _ask(self, content, **kw):
+            return {"topic_blocked": False}, 0.0
+    assert bot.frame_guard("", tagged, Judge()) == (False, 0.0)
+    assert seen == [(320, 180)]
+
+
 def test_a_cache_written_by_the_sideways_reader_is_not_reused(tmp_path, monkeypatch):
     """A cache entry under the key used before the upright reader (no reader version) must not be read back."""
     import hashlib

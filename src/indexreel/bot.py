@@ -295,7 +295,8 @@ def frame_guard(text, clip, judge=None):
     data. Not blocked only on exactly {"topic_blocked": false}; no frame means blocked. About $0.01 at most (2000
     output tokens). Raises on a transport error; the Bot treats that as blocked."""
     import cv2
-    v = cv2.VideoCapture(str(clip))
+    from indexreel.match import open_video
+    v = open_video(clip)  # upright: the rotation tag applied
     v.set(cv2.CAP_PROP_POS_FRAMES, v.get(cv2.CAP_PROP_FRAME_COUNT) // 2)
     ok, frame = v.read()
     v.release()
