@@ -48,22 +48,39 @@ def thumb(frame):
     return out
 
 
-def evidence_image(path, a, b, ta, tb, flip_a, i0, i1, offset):
-    """Three aligned frame pairs (start, middle, end of the overlap): a on the left, b on the right."""
-    idx = sorted({i0, (i0 + i1 - 1) // 2, i1 - 1})
-    while len(idx) < 3:
-        idx.append(idx[-1])
+def evidence_frames(path_a, ta, tb, core, cover, i0, i1, offset):
+    """The three frame pairs the evidence image shows, from the thumbnails the matcher embedded (so a localised clip
+    stays rectified): (times in a, thumbnails of a, thumbnails of b, a is mirrored). Times come from the core span
+    (the cover span when the core is under 6 s, as trace does), else from the start, middle and end of the aligned
+    overlap. The mirror is decided on pixels (trace.mirrored), not by SSCD's flag, which hardly tells a frame from its
+    mirror image; the frames of a come back already mirrored."""
+    from indexreel import trace  # not at the top: trace imports this module
+    if core:
+        ts = trace.evidence_times(path_a, core, cover)
+        idx = [min(max(int(t), 0), len(ta) - 1) for t in ts]  # frame i stands for second i, shown at i + 0.5
+    else:
+        idx = sorted({i0, (i0 + i1 - 1) // 2, i1 - 1})
+        idx += [idx[-1]] * (3 - len(idx))
+    fas, fbs = [ta[i] for i in idx], [tb[min(max(i + offset, 0), len(tb) - 1)] for i in idx]
+    flip = trace.mirrored(fas, fbs)
+    return [i + 0.5 for i in idx], [f[:, ::-1].copy() for f in fas] if flip else [f.copy() for f in fas], [f.copy() for f in fbs], flip
+
+
+def evidence_image(path, a, b, ta, tb, i0, i1, offset, path_a=None, core=None, cover=None):
+    """Three aligned frame pairs, a on the left and b on the right, labelled with their times (see evidence_frames).
+    Returns the times in a, joined by ";"."""
+    ts, fas, fbs, flip = evidence_frames(path_a, ta, tb, core, cover, i0, i1, offset)
     rows = []
-    for i in idx:
-        left, right = ta[i].copy(), tb[i + offset].copy()
-        if flip_a:
-            left = left[:, ::-1].copy()
-        cv2.putText(left, f"{a} {i + 0.5:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(right, f"{b} {i + offset + 0.5:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
+    for t, left, right in zip(ts, fas, fbs):
+        cv2.putText(left, f"{a} {t:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(right, f"{b} {t + offset:.1f}s", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
                     cv2.LINE_AA)
+        if flip:
+            cv2.putText(left, "mirrored", (6, left.shape[0] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1,
+                        cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
     cv2.imwrite(str(path), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 70])
-    return ";".join(f"{i + 0.5:.1f}" for i in idx)
+    return ";".join(f"{t:.1f}" for t in ts)
 
 
 def label(clip, place):
@@ -145,6 +162,7 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
                      **({"source": src} if (src := load_source(p)) else {})})
         print(f"{p.stem}: {len(quads)} frames, localiser fallback {fallback:.0%}", flush=True)
     dur = {c["id"]: c["duration_s"] for c in info}
+    paths = {p.stem: p for p in clips}  # trace.evidence_times reads a's video to pick sharp frames in a short core
     name = {c["id"]: label(c, n) for n, c in enumerate(info, 1)}
 
     rows = []
@@ -163,7 +181,8 @@ def match(folder, out, model, merge_at=MERGE_AT, floor=FLOOR, theta=localise.THE
         ev, evt = "", ""
         if bd != "apart":
             ev = f"frames/{pid}.jpg"
-            evt = evidence_image(out / ev, name[a], name[b], thumbs[a], thumbs[b], flipped, i0, i1, k)
+            evt = evidence_image(out / ev, name[a], name[b], thumbs[a], thumbs[b], i0, i1, k, paths[a],
+                                 core[:2] if core[0] != "" else None, tuple(cover[2:4]) if cov else None)
         rows.append({"pair_id": pid, "a": a, "b": b, "score": round(score, 4), "aligned": round(al, 4),
                      "mirrored": int(flipped), "offset_s": k, "a_start_s": i0, "a_end_s": min(i1, dur[a]),
                      "b_start_s": i0 + k, "b_end_s": round(min(i1 + k, dur[b]), 3), "band": bd, "evidence": ev,

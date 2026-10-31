@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from indexreel import cli, cluster, localise
+from indexreel import cli, cluster, localise, sscd
 
 MODEL = cli.MODEL
 
@@ -101,3 +101,34 @@ def test_evidence_labels_name_posts_by_place_and_shorten_long_ids():
     assert cli.label({"id": "twitter_2115522805395542016", "source": {"platform": "x"}}, 5) == "post 5"
     assert cli.label({"id": "N01__refilm_sim"}, 3) == "N01__refilm_sim"  # short ids stay, so dev images do not change
     assert cli.label({"id": "devgate_refilm_A_bezel_b01_T"}, 1) == "devgate_re..ezel_b01_T"
+
+
+def thumbs_of(path):
+    return np.stack([cli.thumb(f) for f in sscd.frames_per_second(path)])
+
+
+def test_evidence_frames_come_from_the_core_span_and_the_mirror_is_decided_on_pixels(tmp_path):
+    write_clip(tmp_path / "a.mp4", 7, seconds=12)
+    ta = thumbs_of(tmp_path / "a.mp4")
+    tf = np.stack([t[:, ::-1] for t in ta])  # the same clip mirrored
+    plain = cli.evidence_frames(tmp_path / "a.mp4", ta, ta, (3.0, 11.0), None, 0, 12, 0)
+    assert plain[0] == [3.5, 7.5, 10.5] and plain[3] is False  # the core's start, middle and end, not the overlap's
+    ts, fas, fbs, flip = cli.evidence_frames(tmp_path / "a.mp4", ta, tf, (3.0, 11.0), None, 0, 12, 0)
+    assert flip is True and ts == plain[0] and np.array_equal(fas[0], fbs[0])  # a is drawn mirrored, so it lines up with b
+    # the other way round: b is the mirrored one; a is mirrored whichever clip is
+    assert cli.evidence_frames(tmp_path / "a.mp4", tf, ta, (3.0, 11.0), None, 0, 12, 0)[3] is True
+    # no core span: the overlap's start, middle and end, as before
+    assert cli.evidence_frames(None, ta, ta, None, None, 2, 8, 0)[0] == [2.5, 4.5, 7.5]
+    # an offset shifts b's frames, and the last frame is never passed
+    assert cli.evidence_frames(None, ta, ta, None, None, 2, 8, 2)[2][0].tolist() == ta[4].tolist()
+    assert cli.evidence_frames(None, ta, ta, None, None, 8, 12, 5)[2][2].tolist() == ta[11].tolist()
+    # a short core is widened to the cover span (the sharpest frame in each third), as in trace
+    widened = cli.evidence_frames(tmp_path / "a.mp4", ta, ta, (5.0, 7.0), (0.0, 12.0), 0, 12, 0)[0]
+    assert [int(t) // 4 for t in widened] == [0, 1, 2]
+
+
+def test_evidence_image_labels_the_times_and_says_when_it_mirrors(tmp_path):
+    ta = np.random.default_rng(1).integers(0, 255, (6, 180, 320, 3), dtype=np.uint8)
+    out = tmp_path / "e.jpg"
+    assert cli.evidence_image(out, "a", "b", ta, ta, 1, 5, 0) == "1.5;2.5;4.5"
+    assert cv2.imread(str(out)).shape == (540, 640, 3)
