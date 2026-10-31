@@ -89,6 +89,17 @@ def test_a_failed_post_is_reported_with_its_code_and_the_others_go_on(tmp_path):
     assert lines[0] == "fetch: error https://x.com/a/status/9 not_found: ERROR: [twitter] 9: Requested tweet is unavailable"
 
 
+def test_a_leftover_format_part_is_not_taken_as_the_video(tmp_path):
+    def run(url, out):  # yt-dlp stopped before the merge: one audio part and the info are left
+        (Path(out) / "twitter_1234567890123456789.f251.webm").write_bytes(b"x" * 2700)
+        shutil.copy(INFO, Path(out) / "twitter_1234567890123456789.info.json")
+        return 0, ""
+    lines = []
+    assert fetch.fetch([URL], tmp_path, run, lines.append) == (0, 0, 1)
+    assert not any(ln.startswith("fetch: ok") for ln in lines)
+    assert not (tmp_path / "twitter_1234567890123456789.source.json").exists()
+
+
 def test_main_exit_codes(tmp_path, capsys):
     with pytest.raises(SystemExit) as e:
         fetch.main(["--out", str(tmp_path), "https://x.com/someone"], run=fake_ytdlp)

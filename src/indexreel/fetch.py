@@ -113,7 +113,9 @@ def fetch(urls, out, run=run_ytdlp, say=print):
             stem = info_file.name[: -len(".info.json")]
             info = json.loads(info_file.read_text())
             info_file.unlink()  # the raw info holds signed media URLs and more than we keep
-            video = next((p for p in sorted(out.glob(stem + ".*")) if not p.name.endswith((".json", ".part"))), None)
+            # exactly <stem>.<ext>: a leftover format part (<stem>.f251.webm) is not the video
+            video = next((p for p in sorted(out.glob(stem + ".*"))
+                          if p.stem == stem and not p.name.endswith((".json", ".part"))), None)
             sidecar = out / f"{stem}.source.json"
             if video is None:
                 failed += 1
