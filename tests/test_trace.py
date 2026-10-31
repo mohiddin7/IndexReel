@@ -1,5 +1,6 @@
 import csv
 import json
+from pathlib import Path
 
 from indexreel import cli, cluster, trace, verify
 
@@ -584,6 +585,50 @@ def test_verification_stops_after_two_earlier_copies_taken_earliest_first(tmp_pa
         assert by["a"]["shown"] == 1
     finally:
         YT.pop("copies")
+
+
+def test_a_copy_is_automatic_only_when_verify_and_geo_both_say_same(tmp_path):
+    # a: verify same, geo same; b: verify same, geo different; c: merged without a verify answer, geo same;
+    # d: verify same but geo crashed; e: later than the claim; f: apart. Stop-at-2 is per confirmed earlier copy,
+    # so the four earlier ones come from two recordings' worth of runs: here each candidate is checked on its own run.
+    verdicts = {"a": "same", "b": "same", "c": "", "d": "same", "e": "same", "f": ""}
+    bands = {"a": "merged", "b": "merged", "c": "merged", "d": "merged", "e": "merged", "f": "apart"}
+    geo_says = {"a": "same", "b": "different", "c": "same", "d": RuntimeError("no frames"), "e": "same", "f": "same"}
+    dates = {"a": "2016-01-01", "b": "2016-01-02", "c": "2016-01-03", "d": "2016-01-04", "e": "2022-01-01", "f": "2016-01-05"}
+    def matcher(folder, out, model):
+        a, b = sorted(p.stem for p in folder.iterdir() if p.suffix == ".mp4")
+        k = (b if a.startswith("input_") else a)[-1]
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "pairs.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cli.PAIR_COLUMNS, restval="")
+            w.writeheader()
+            w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": bands[k], "verify_verdict": verdicts[k]})
+    checked = []
+    def geo_check(a, b):
+        k = Path(b).stem[-1]
+        checked.append((Path(a).name, k))
+        if isinstance(geo_says[k], Exception):
+            raise geo_says[k]
+        return {"verdict": geo_says[k], "reason": f"geo said {geo_says[k]}"}
+    rows = []
+    for pair in ("ab", "cd", "ef"):
+        YT["auto"] = [f"https://www.youtube.com/watch?v={k}" for k in pair]
+        sub = tmp_path / pair
+        run = run_dir(sub)
+        s = trace.Searcher(FakeSpark([], queries=("auto",)), verify.Cache(sub / "cache"),
+                           search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+        rows += trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None, matcher=matcher,
+                            fetcher=fake_fetcher({f"https://www.youtube.com/watch?v={k}": ("youtube", k, dates[k]) for k in pair}),
+                            geo_check=geo_check)
+    YT.pop("auto")
+    by = {r["url"][-1]: r for r in rows}
+    assert sorted(k for _, k in checked) == ["a", "b", "c", "d"]  # confirmed earlier copies only: not e (later), not f (apart)
+    assert {a for a, _ in checked} == {"v.mp4"}  # the input is A
+    assert [by[k]["automatic"] for k in "abcd"] == [1, 0, 0, 0]
+    assert [by[k]["geo"] for k in "abcd"] == ["same", "different", "same", "error"]
+    assert by["d"]["geo_detail"].startswith("RuntimeError")
+    assert by["e"].get("automatic", "") == "" and by["f"].get("geo", "") == ""
+    assert {"geo", "geo_detail", "automatic"} <= set(trace.COLUMNS)
 
 
 def test_every_search_runs_before_any_matching_and_verify_keeps_a_reserve(tmp_path):

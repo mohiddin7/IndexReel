@@ -23,7 +23,7 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from indexreel import cli, cluster, fetch, verify, withdraw
+from indexreel import cli, cluster, fetch, geo, verify, withdraw
 
 # Frozen in eval/trace.md (leak rule 1): host, or host plus path prefix.
 EXCLUDED = ["afp.com", "reuters.com/fact-check", "apnews.com/article/fact-check", "snopes.com", "fullfact.org",
@@ -84,7 +84,7 @@ PACE_S = 2  # seconds yt-dlp waits between requests to a platform: YouTube asks 
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
            "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy", "prerank", "families", "strength",
-           "corroborated_date", "corroboration_urls", "date_check", "possible_source"]
+           "corroborated_date", "corroboration_urls", "date_check", "possible_source", "geo", "geo_detail", "automatic"]
 
 QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
 The footage may be older than it seems or from somewhere else, so work only from what the video shows.
@@ -977,7 +977,7 @@ def recording_input(run, rec, clips, dates):
 
 
 def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None, cache=None, fetcher=run_low,
-                    matcher=cli.match, verifier=verify.verify, narrower=narrow, log=print, reserve=0.0):
+                    matcher=cli.match, verifier=verify.verify, narrower=narrow, log=print, reserve=0.0, geo_check=None):
     """trace.csv rows for one recording; candidates go to <run>/trace/<recording>/. Verify keeps `reserve` dollars
     back for the recordings still to come."""
     run = Path(run)
@@ -1075,6 +1075,8 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
                 r["earlier"] = ""
             r["possible_source"] = 1 if r["earlier"] == 1 and r["confirmed"] == 0 and possible_source(p) else ""
             found += int(r["confirmed"] == 1 and r["earlier"] == 1)
+            if r["confirmed"] == 1 and r["earlier"] == 1:  # at most ENOUGH per recording
+                geo_copy(r, src, cand, geo_check or geo.verify, log)
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
         r["shown"] = int(bool(shown) and r is shown[0])
@@ -1084,6 +1086,19 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     if shown and hasattr(searcher, "corroborate"):
         corroborate(searcher, shown[0], cdir)
     return rows
+
+
+
+def geo_copy(r, src, cand, check, log):
+    """The automatic gate: a confirmed copy is automatic only when verify said same AND the geometric check says
+    same. Anything else (different, cannot tell, an error, no verify answer) stays a copy to check by eye."""
+    try:
+        g = check(src, cand)
+    except Exception as e:
+        g = {"verdict": "error", "reason": f"{type(e).__name__}: {str(e)[:150]}"}
+    r["geo"], r["geo_detail"] = g["verdict"], g["reason"]
+    r["automatic"] = int(r.get("verify_verdict") == "same" and g["verdict"] == "same")
+    log(f"trace: {r['clip']} geo {g['verdict']}: {g['reason']}")
 
 
 def possible_source(p):

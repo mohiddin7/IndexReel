@@ -313,8 +313,9 @@ def frame_guard(text, clip, judge=None):
 def post_found(result):
     """True when a found result is posted straight away in --auto; False holds it in the outbox for
     `indexreel bot approve`. This is the one place that decides it for found results; every other reply follows the
-    mode. `result` is run_trace's dict (shown row, checked, card, spent). Every confirmed earlier copy qualifies."""
-    return True
+    mode. `result` is run_trace's dict (shown row, checked, card, spent). Only an automatic copy qualifies: verify
+    and the geometric check both said same (trace's `automatic` column); any other found copy waits for a person."""
+    return bool(result.get("shown")) and result["shown"].get("automatic") == 1
 
 
 def run_trace(clip, claimed, work, max_usd, place=None):

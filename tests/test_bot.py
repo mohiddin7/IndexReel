@@ -75,9 +75,10 @@ ORIGIN = {"intent": "origin", "topic_blocked": False, "claimed_date": None, "cla
 class Calls:
     """Fake fetch, question reader and trace that record what they were asked."""
 
-    def __init__(self, shown=True, answers=None, spent=0.30, guard=(False, 0.002)):
+    def __init__(self, shown=True, answers=None, spent=0.30, guard=(False, 0.002), automatic=1):
         self.found, self.read, self.traced, self.guarded, self.places = [], [], [], [], []
         self.shown, self.answers, self.spent, self.guard_answer = shown, list(answers or []), spent, guard
+        self.automatic = automatic
 
     def find(self, post_id, work):
         self.found.append(post_id)
@@ -101,7 +102,8 @@ class Calls:
         self.places.append(place)
         if isinstance(self.spent, Exception):
             raise self.spent
-        shown = {"posted_at": "2019-05-02T00:00:00Z", "platform": "youtube", "url": SOURCE} if self.shown else None
+        shown = ({"posted_at": "2019-05-02T00:00:00Z", "platform": "youtube", "url": SOURCE, "automatic": self.automatic}
+                 if self.shown else None)
         return {"shown": shown, "checked": 7, "card": Path(work) / "core.jpg" if self.shown else None, "spent": self.spent}
 
 
@@ -575,6 +577,18 @@ def test_found_results_go_through_one_auto_or_review_decision(tmp_path, monkeypa
     assert seen[0]["shown"]["url"] == SOURCE and len(seen) == 1
     assert (tmp_path / "bot" / "outbox" / "2.json").exists()  # held for review in --auto
     assert fake.sent == [("3", "I couldn't find a video in this post.", None)]  # other replies follow the mode
+
+
+def test_a_copy_that_is_not_automatic_is_held_in_auto_never_posted_or_called_not_found(tmp_path):
+    for automatic in (0, "", None):  # geo did not say same, verify did not, or the column is missing
+        fake = Fake(page(("2", FRIEND, "self")))
+        b = make(tmp_path / str(automatic), fake, calls=Calls(automatic=automatic), mode="auto")
+        b.poll()
+        assert fake.sent == []
+        held = json.loads((tmp_path / str(automatic) / "bot" / "outbox" / "2.json").read_text())
+        assert held["text"] == found_text("2026-10-30") and "found no upload" not in held["text"]
+    assert bot.post_found({"shown": {"automatic": 1}}) is True
+    assert bot.post_found({"shown": None}) is False
 
 
 def test_approve_respects_stop(tmp_path):
