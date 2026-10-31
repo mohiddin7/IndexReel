@@ -40,19 +40,19 @@ The rest of this page is for developers and researchers.
 
 | Meta model or tool | What it does in IndexReel | How it did in my tests |
 |---|---|---|
-| **SSCD** (Meta AI's copy-detection model, `sscd_disc_mixup`) | Turns every frame, and its mirror image, into a vector. All matching is built on it. | Ranked the true original first on 96/96 real phone re-films; 0/1,080 wrong joins in held-out run 2. It also scores two takes of the same view as copies, so nothing is decided on it alone. |
-| **Muse Spark** | Checks uncertain and merged pairs; writes the searches for earlier uploads from the frames; suggests caption claims; on X, reads what a person asks and declines political topics. | Same footage in both orders on 14/14 edited copies, 0/42 non-copies called same. One cheap call took two takes of one view for one recording. |
-| **Muse Spark Open** (open weights) | The same check run on my own GPU, to see whether open weights hold up. | Its own original called same on 91/96 re-films; 0 false "same" in 1,440 other pairs. |
-| **Muse Voice Transcribe** | On X, when a caption names no place, a place said in the video can add searches. | Of 41 test clips, one had speech naming a place its caption lacked. |
-| **Ray-Ban Meta glasses** | The second camera for my own test footage: the airshow clip in the example and the two-camera same-moment tests. | |
-| **Meta's Video Similarity Challenge** (VSC 2022) | The idea behind the time check: a copy shows up as one straight line in a frame-by-frame similarity grid. | |
-| **PDQ** (Meta's perceptual image hash) | A comparison only. | Ranked the true original first on 67/96 re-films, against SSCD's 96/96. |
-| **SAM 3.1** | Tested as the screen finder. Not used. | Lost the first test 1/4 to OpenCV's 4/4 on simulated re-films. A later check found most of that came from my prompt word ("screen" found 3 of 8 screens, "television screen" 6 of 8) and from scoring with PDQ; with both fixed it reached 3/4, still behind OpenCV. |
-| **Muse Wonder** | Tried as the judge for the hardest pairs. Not used. | Found 10 of 12 hard true copies against Spark's 9, but called 2 of 12 pairs of different takes the same recording, at about five times the cost. |
+| SSCD (Meta AI's copy-detection model, `sscd_disc_mixup`) | Turns every frame, and its mirror image, into a vector. All matching is built on it. | Ranked the true original first on 96/96 real phone re-films; 0/1,080 wrong joins in held-out run 2. It also scores two takes of the same view as copies, so nothing is decided on it alone. |
+| Muse Spark | Checks uncertain and merged pairs; writes the searches for earlier uploads from the frames; suggests caption claims; on X, reads what a person asks and declines political topics. | Same footage in both orders on 14/14 edited copies, 0/42 non-copies called same. One cheap call took two takes of one view for one recording. |
+| Muse Spark Open (open weights) | The same check run on my own GPU, to see whether open weights hold up. | Its own original called same on 91/96 re-films; 0 false "same" in 1,440 other pairs. |
+| Muse Voice Transcribe | On X, when a caption names no place, a place said in the video can add searches. | Of 41 test clips, one had speech naming a place its caption lacked. |
+| Ray-Ban Meta glasses | The second camera for my own test footage: the airshow clip in the example and the two-camera same-moment tests. | |
+| Meta's Video Similarity Challenge (VSC 2022) | The idea behind the time check: a copy shows up as one straight line in a frame-by-frame similarity grid. | |
+| PDQ (Meta's perceptual image hash) | A comparison only. | Ranked the true original first on 67/96 re-films, against SSCD's 96/96. |
+| SAM 3.1 | Tested as the screen finder. Not used. | Lost the first test 1/4 to OpenCV's 4/4 on simulated re-films. A later check found most of that came from my prompt word ("screen" found 3 of 8 screens, "television screen" 6 of 8) and from scoring with PDQ; with both fixed it reached 3/4, still behind OpenCV. |
+| Muse Wonder | Tried as the judge for the hardest pairs. Not used. | Found 10 of 12 hard true copies against Spark's 9, but called 2 of 12 pairs of different takes the same recording, at about five times the cost. |
 
 ## Choices, and what each one costs
 
-Each choice below was measured against at least one alternative. The numbers come from the results table or from exploratory checks run after a test.
+I measured each choice against at least one alternative, either in the results above or in a check I ran after a test.
 
 | Choice | What I gave up | Why |
 |---|---|---|
@@ -70,9 +70,9 @@ Each choice below was measured against at least one alternative. The numbers com
 
 ## What it costs
 
-Money decides most of the choices above, so here it is in one place. Prices are list prices.
+Most of the choices above come down to money. Prices are list prices.
 
-**Per check**
+### Per check
 
 | Step | Cost | Time |
 |---|---|---|
@@ -84,7 +84,7 @@ Money decides most of the choices above, so here it is in one place. Prices are 
 | SAM 3.1 through the Meta Model API | $0.20 per 1,000 frames | |
 | YouTube Data API search | free, but 100 searches a day; a check uses 3, or 5 with a caption's place | |
 
-**Per answer on X**
+### Per answer on X
 
 | | Cost |
 |---|---|
@@ -93,9 +93,11 @@ Money decides most of the choices above, so here it is in one place. Prices are 
 | X, a reply without a link ("none found") | 1 cent |
 | Time from tag to queued reply | 12 to 18 minutes |
 
-So one answered tag costs about 30 cents, and the daily caps (25 checks, 3 per person, $5 of Spark, $5 of X) keep a bad day under about $10.
+One answered tag comes to about 30 cents. The daily caps (25 checks, 3 per person, $5 of Spark, $5 of X) keep a bad day under about $10.
 
-**Per test.** Every test ran under a cap written down before it ran:
+### Per test
+
+Each test had a spending cap, written down before it ran.
 
 | Test | Spend |
 |---|---|
@@ -106,7 +108,7 @@ So one answered tag costs about 30 cents, and the daily caps (25 checks, 3 per p
 | same moment | $0.87 |
 | trace v1, v2, v3 | $1.16, $1.97, $1.06 |
 
-v2 is the cautionary one: its $2 cap ran out before the last recordings were searched.
+Trace v2's $2 cap ran out before its last recordings were searched, which is why v3 and v4 have $3.
 
 ## Quickstart
 
