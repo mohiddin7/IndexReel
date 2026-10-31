@@ -459,7 +459,7 @@ function resultsBox() {
     out += `<tr><td>${esc(r.label)}${r.note ? `<div class="res-note">${esc(r.note)}</div>` : ""}</td><td>${value}</td><td>${esc(r.bar || "")}</td><td><span class="badge ${cls}">${esc(r.status)}</span></td><td class="res-note">${esc(r.source)}</td></tr>`;
   });
   document.getElementById("results").innerHTML = out + (group ? `</tbody></table></div>` : "") +
-    `<p class="res-note">Intervals are Wilson 95%. Copies are simulated or filmed by me; none of this is footage from the web.</p>`;
+    `<p class="res-note">Intervals are Wilson 95%. Outside the trace group, copies are simulated or filmed by me. The trace group's inputs were cut by me from public uploads, and its candidates are public web uploads.</p>`;
 }
 
 function render() {
