@@ -450,7 +450,8 @@ function resultsBox() {
     if (r.group !== group) {
       if (group) out += `</tbody></table></div>`;
       group = r.group;
-      out += `<h3>${esc(group)}</h3><div class="res-wrap"><table class="res"><thead><tr><th>Measured</th><th>Result</th><th>Bar</th><th>Verdict</th><th>File</th></tr></thead><tbody>`;
+      const verdict = (rows.find((x) => x.group === group && x.verdict) || {}).verdict;
+      out += `<h3>${esc(group)}</h3>${verdict ? `<p class="small"><strong>Test verdict:</strong> <span class="badge ${verdict.startsWith("PASS") ? "pass" : "fail"}">${esc(verdict)}</span></p>` : ""}<div class="res-wrap"><table class="res"><thead><tr><th>Measured</th><th>Result</th><th>Bar</th><th>Verdict</th><th>File</th></tr></thead><tbody>`;
     }
     const value = r.result ? esc(r.result)
       : r.k == null ? "not run yet"

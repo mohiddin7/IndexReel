@@ -332,6 +332,20 @@ def test_the_results_file_in_eval_is_consistent_and_keeps_the_frozen_failures():
     assert [r["status"] for r in rows if r["group"].startswith("Held-out run 1")] == ["FAIL", "PASS"]
 
 
+def test_every_results_group_states_its_tests_own_verdict_and_the_rows_agree():
+    groups = {}
+    for r in wall.read_results(wall.RESULTS):
+        groups.setdefault(r["group"], []).append(r)
+    for g, rows in groups.items():
+        verdict = rows[0].get("verdict", "")  # the first row of a group carries it, so a lone PASS row cannot read as a passed test
+        assert verdict.split()[0] in {"PASS", "FAIL"}, g
+        assert not any("verdict" in r for r in rows[1:]), g
+        failed = any(r["status"] == "FAIL" for r in rows)
+        assert failed == verdict.startswith("FAIL"), g  # a PASS test has no failed row; a FAIL test has at least one
+    page = wall.PAGE.read_text()
+    assert "Test verdict:" in page
+
+
 def test_results_reach_the_state_the_server_and_the_export(run, tmp_path):
     assert wall.state(run)["results"] is None
     s = wall.state(run, results=wall.RESULTS)
