@@ -823,6 +823,18 @@ def test_trace_date_check_notes_and_still_no_corroborated_date(run):
     assert "this platform lets the uploader change the date" in js and "the post's own id agrees with this date" in js and "corroborat" not in js
 
 
+def test_trace_copies_say_whether_the_check_was_automatic(run):
+    trace_run(run)
+    assert [(c["automatic"], c["geo_detail"]) for c in wall.read_trace(run)["r1"]["copies"]] == [(False, ""), (False, "")]  # an older run
+    f = run / "trace.csv"
+    head, *rows = f.read_text().splitlines()
+    f.write_text("\n".join([head + ",geo,geo_detail,automatic"] + [r + (",same,mirrored; scale 0.9; slope 1.0,1" if i == 0 else ",different,not aligned,0") for i, r in enumerate(rows)]) + "\n")
+    copies = wall.read_trace(run)["r1"]["copies"]
+    assert [(c["automatic"], c["geo_detail"]) for c in copies] == [(True, "mirrored; scale 0.9; slope 1.0"), (False, "")]
+    js = wall.PAGE.read_text().split("function copyLine")[1].split("function traceCard")[0]
+    assert "automatic: same footage" in js and "confirmed by matching, check it yourself" in js and "c.automatic" in js
+
+
 def possible_run(run):
     """trace_run plus a possible_source column: r2's candidate is an unconfirmed lead, with its own image."""
     trace_run(run)

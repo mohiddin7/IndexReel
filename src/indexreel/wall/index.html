@@ -307,7 +307,9 @@ function copyLine(c, claimed) {
     : c.earlier === "0" ? " (not posted before the claimed date)" : "";
   const via = c.leak_copy ? ` <span class="muted">found only by a web search that also read fact-checking pages</span>` : "";
   const check = DATE_CHECK[c.date_check] ? ` <span class="muted">${DATE_CHECK[c.date_check]}</span>` : "";
-  return `<div>${when}, ${c.account ? `@${esc(String(c.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${rel}${check}${via}</div>`;
+  const how = c.automatic ? ` <span class="badge merged">automatic: same footage</span>${c.geo_detail ? ` <span class="muted">${esc(c.geo_detail)}</span>` : ""}`
+    : ` <span class="badge unresolved">confirmed by matching, check it yourself</span>`;  // automatic only when verify and the geometric check both said same
+  return `<div>${when}, ${c.account ? `@${esc(String(c.account).replace(/^@/, ""))}` : "unknown account"}, ${link}${rel}${check}${via}${how}</div>`;
 }
 
 function traceCard(id, t) {

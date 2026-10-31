@@ -128,6 +128,7 @@ def read_trace(run):
             "clip": clip, "url": r["url"], "platform": r["platform"], "account": r["account"], "posted_at": r["posted_at"],
             "source": r["source"], "earlier": r["earlier"] or None, "shown": r["shown"] == "1",
             "leak_copy": r.get("leak_copy") == "1", "date_check": r.get("date_check") or "", "caption": caption,
+            "automatic": r.get("automatic") == "1", "geo_detail": (r.get("geo_detail") or "")[:200] if r.get("automatic") == "1" else "",
             "evidence": evidence})
     return out
 
