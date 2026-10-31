@@ -231,7 +231,7 @@ def ridge(S, ta, tb):
     ridge_z compares the best line with every line whose offset is at least 1 s away at A's middle (robust z).
     support: share of the line's rows whose own peak lies within 0.3 s of it.
     """
-    res = dict(rows=0, support=0.0, ridge_z=0.0, line_ncc=float("nan"), slope=float("nan"), offset=float("nan"))
+    res = dict(rows=0, support=0.0, ridge_z=0.0, line_ncc=float("nan"), slope=float("nan"), offset=float("nan"), a_span=None)
     ok_rows = np.isfinite(S).sum(1) >= 10
     if ok_rows.sum() < 4:
         return res
@@ -265,7 +265,7 @@ def ridge(S, ta, tb):
     on = ok_rows & (t >= tb[0]) & (t <= tb[-1])
     peaks = tb[np.nanargmax(np.where(np.isfinite(S[on]), S[on], -9), axis=1)]
     res.update(rows=int(n), support=float(np.mean(np.abs(peaks - t[on]) <= 0.3)), ridge_z=float(z), line_ncc=float(best),
-               slope=float(a), offset=float(c - a * mid))
+               slope=float(a), offset=float(c - a * mid), a_span=(float(ta[on].min()), float(ta[on].max())) if on.any() else None)
     return res
 
 
@@ -363,6 +363,7 @@ def verify(path_a, path_b):
         LAST.update(S=S, ta=ta, tb=tb, RA=RA, RB=RB)
         out.update(motion=round(motion, 2), a_rows=rd["rows"], support=round(rd["support"], 2), ridge_z=round(rd["ridge_z"], 1),
                    line_ncc=round(rd["line_ncc"], 3), slope=round(rd["slope"], 3), offset_s=round(rd["offset"], 2),
+                   a_span_s=rd["a_span"] and tuple(round(x, 2) for x in rd["a_span"]),
                    a_reg=f"{sum(m is not None for m in mapA)}/{len(mapA)}", b_reg=f"{sum(m is not None for m in mapB)}/{len(mapB)}")
     out["verdict"], out["reason"] = decide(out)
     out["t_verify_s"] = round(time.time() - t1, 2)

@@ -29,6 +29,8 @@ def test_a_mirrored_cropped_slowed_copy_is_same_with_its_speed_and_offset(tmp_pa
     o = geo.verify(pa, pb)
     assert o["verdict"] == "same" and o["flip"], o
     assert abs(o["slope"] - 0.67) < 0.05 and abs(o["offset_s"] - 40 / 30) < 0.3, o
+    lo, hi = o["a_span_s"]  # A is 5 s long; the line maps the span inside B (8 s)
+    assert 0 <= lo < hi <= 5.0 and 0 <= o["slope"] * hi + o["offset_s"] <= 8.0, o
 
 
 def test_thresholds_are_the_frozen_ones():

@@ -2,6 +2,8 @@ import csv
 import json
 from pathlib import Path
 
+import pytest
+
 from indexreel import cli, cluster, trace, verify
 
 
@@ -824,3 +826,125 @@ def test_a_description_that_reads_like_a_fact_check_gives_no_leads(tmp_path):
     s, searched = _credit_searcher(tmp_path, "FACT CHECK: this is old. Original: https://www.tiktok.com/@orig/video/7000000000000000000 @OrigChannel")
     order, _, _ = s.candidates(str(tmp_path / "v.mp4"), "2021-12-05")
     assert not any(x == "credit" for x, _, _ in order) and "@OrigChannel" not in searched
+
+
+def test_a_card_drawn_from_geos_line_shows_the_candidate_at_that_lines_times(tmp_path, monkeypatch):
+    orig, inp = _clips(tmp_path, slow=True)  # input t shows the original at 4 + t / 2
+    pdir = tmp_path / "pair"
+    pdir.mkdir()
+    (pdir / "input_x.mp4").symlink_to(inp)
+    (pdir / "youtube_o.mp4").symlink_to(orig)
+    p = {"a": "input_x", "b": "youtube_o", "offset_s": "0", "core_a_start_s": "2", "core_a_end_s": "14",
+         "core_b_start_s": "2", "core_b_end_s": "14"}  # the matcher's offset is wrong for a slowed copy
+    seen, read = [], trace.frame_at
+    monkeypatch.setattr(trace, "frame_at", lambda path, t: seen.append((Path(path).stem, round(t, 2))) or read(path, t))
+    assert trace.core_evidence(pdir, p, tmp_path / "core.jpg", line=(0.5, 4.0))
+    assert [t for s, t in seen if s == "youtube_o"] == [round(4 + t / 2, 2) for s, t in seen if s == "input_x"]
+    seen.clear()  # with the input span geo found its line on, the input's times come from inside it
+    assert trace.core_evidence(pdir, p, tmp_path / "core.jpg", line=(0.5, 4.0, 10.0, 15.0))
+    assert [t for s, t in seen if s == "input_x"] == [11.0, 12.5, 14.0]
+    assert [t for s, t in seen if s == "youtube_o"] == [9.5, 10.25, 11.0]
+
+
+def test_geos_line_is_used_for_the_card_only_when_its_ridge_is_strong():
+    strong = {"slope": 0.508, "offset_s": 40.86, "ridge_z": 19.8, "line_ncc": 0.294, "support": 0.33}
+    assert trace.geo_line(strong) == (0.508, 40.86)  # n13: a slowed copy, geo cannot tell on support alone
+    assert trace.geo_line({**strong, "a_span_s": (2.0, 9.5)}) == (0.508, 40.86, 2.0, 9.5)
+    assert trace.geo_line({**strong, "ridge_z": 5.9}) is None
+    assert trace.geo_line({**strong, "line_ncc": 0.12}) is None
+    assert trace.geo_line({"verdict": "cannot tell", "reason": "no similarity registration"}) is None
+    assert trace.geo_line({**strong, "slope": float("nan"), "ridge_z": float("nan")}) is None
+
+
+def test_a_confirmed_copy_gets_its_card_redrawn_from_geos_line(tmp_path, monkeypatch):
+    def matcher(folder, out, model):
+        a, b = sorted(p.stem for p in folder.iterdir() if p.suffix == ".mp4")
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "pairs.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cli.PAIR_COLUMNS, restval="")
+            w.writeheader()
+            w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": "merged", "verify_verdict": "same"})
+    drawn = []
+    monkeypatch.setattr(trace, "core_evidence", lambda pdir, p, out, model=None, line=None: drawn.append(line) or line is not None)
+    lines = {"a": {"verdict": "cannot tell", "reason": "-", "slope": 0.5, "offset_s": 3.0, "ridge_z": 19.8, "line_ncc": 0.3},
+             "b": {"verdict": "cannot tell", "reason": "-", "slope": 0.5, "offset_s": 3.0, "ridge_z": 2.0, "line_ncc": 0.3}}
+    YT["line"] = ["https://www.youtube.com/watch?v=a", "https://www.youtube.com/watch?v=b"]
+    run = run_dir(tmp_path)
+    s = trace.Searcher(FakeSpark([], queries=("line",)), verify.Cache(tmp_path / "cache"),
+                       search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+    rows = trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None, matcher=matcher,
+                       fetcher=fake_fetcher({u: ("youtube", u[-1], "2016-01-0" + str(i + 1)) for i, u in enumerate(YT["line"])}),
+                       geo_check=lambda a, b: lines[Path(b).stem[-1]])
+    YT.pop("line")
+    by = {r["url"][-1]: r for r in rows}
+    assert drawn == [(0.5, 3.0)]  # a redraw for a only: b's ridge is weak
+    assert by["a"]["evidence"].endswith("pairs/youtube_a/core.jpg") and by["b"]["evidence"] == ""
+
+
+@pytest.mark.parametrize("card", [True, False])
+def test_a_copy_the_matcher_kept_apart_is_confirmed_only_when_geo_and_verify_both_say_same(tmp_path, monkeypatch, card):
+    """...and only with a card drawn on geo's line: the matcher's own card follows its apart alignment."""
+    monkeypatch.setattr(trace, "core_evidence", lambda pdir, p, out, model=None, line=None: card and line == (1.0, -2.0, 3.0, 9.0))
+    # all five apart; e is later than the claim. By aligned score: e, a, b, c, d; RESCUE = 3 earlier ones: a, b, c
+    aligned = {"a": "0.20", "b": "0.19", "c": "0.18", "d": "0.17", "e": "0.30"}
+    geo_says = {"a": "same", "b": "same", "c": "different", "d": "same", "e": "same"}
+    verify_says = {"a": "same", "b": "different"}
+    dates = {"a": "2016-01-01", "b": "2016-01-02", "c": "2016-01-03", "d": "2016-01-04", "e": "2022-01-01"}
+    def matcher(folder, out, model):
+        a, b = sorted(p.stem for p in folder.iterdir() if p.suffix == ".mp4")
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "pairs.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cli.PAIR_COLUMNS, restval="")
+            w.writeheader()
+            w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": "apart", "aligned": aligned[b[-1]]})
+    checked, asked = [], []
+    def geo_check(a, b):
+        checked.append(Path(b).stem[-1])
+        return {"verdict": geo_says[Path(b).stem[-1]], "reason": "r", "slope": 1.0, "offset_s": -2.0, "ridge_z": 9.0,
+                "line_ncc": 0.3, "a_span_s": (3.0, 9.0)}
+    def verifier(out, judge, cache, max_usd, workers):
+        with open(out / "pairs.csv", newline="") as f:
+            rd = csv.DictReader(f)
+            cols, prs = rd.fieldnames, list(rd)
+        for x in prs:
+            if x["band"] != "apart":  # as verify.verify: an apart pair is never asked
+                asked.append(x["b"][-1])
+                x["verify_verdict"] = verify_says[x["b"][-1]]
+        with open(out / "pairs.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+            w.writerows(prs)
+        return 0.01, 0.01
+    YT["apart"] = [f"https://www.youtube.com/watch?v={k}" for k in "abcde"]
+    run = run_dir(tmp_path)
+    s = trace.Searcher(FakeSpark([], queries=("apart",)), verify.Cache(tmp_path / "cache"),
+                       search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+    rows = trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None, matcher=matcher,
+                       fetcher=fake_fetcher({f"https://www.youtube.com/watch?v={k}": ("youtube", k, dates[k]) for k in "abcde"}),
+                       geo_check=geo_check, judge=object(), verifier=verifier)
+    YT.pop("apart")
+    by = {r["url"][-1]: r for r in rows}
+    assert checked == ["a", "b", "c"] and asked == ["a", "b"]  # never d (fourth) or e (later); c: geo said different
+    if not card:
+        assert [by[k]["confirmed"] for k in "abcde"] == [0, 0, 0, 0, 0] and by["a"].get("automatic", "") == ""
+        return
+    assert [by[k]["confirmed"] for k in "abcde"] == [1, 0, 0, 0, 0]
+    assert by["a"]["automatic"] == 1 and by["a"]["shown"] == 1 and by["a"]["geo_detail"].startswith("found by geo")
+    assert by["a"]["evidence"].endswith("pairs/youtube_a/core.jpg")
+    assert by["b"].get("automatic", "") == "" and by["b"].get("geo", "") == ""
+
+
+def test_no_rescue_once_enough_copies_are_found(tmp_path):
+    checked = []
+    posted = {"https://www.youtube.com/watch?v=old": ("youtube", "old", "2016-01-01"),
+              "https://www.youtube.com/watch?v=late": ("youtube", "late", "2017-01-01")}
+    YT["two"] = list(posted) + ["https://www.youtube.com/watch?v=x"]
+    posted["https://www.youtube.com/watch?v=x"] = ("youtube", "x", "2015-01-01")
+    run = run_dir(tmp_path)
+    s = trace.Searcher(FakeSpark([], queries=("two",)), verify.Cache(tmp_path / "cache"),
+                       search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+    trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None, judge=object(),
+                matcher=fake_matcher({"youtube_old": "merged", "youtube_late": "merged"}), fetcher=fake_fetcher(posted),
+                verifier=lambda *a, **k: (0.0, 0.0), geo_check=lambda a, b: checked.append(Path(b).stem) or {"verdict": "same", "reason": "r"})
+    YT.pop("two")
+    assert sorted(checked) == ["youtube_late", "youtube_old"]  # the two confirmed copies only: x is never rescued

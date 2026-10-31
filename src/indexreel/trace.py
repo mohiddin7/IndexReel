@@ -59,6 +59,7 @@ MARGIN = 15  # seconds kept on each side of that stretch; inside it the match ru
 GUARD = {"web": 0.10, "queries": 0.03, "corroborate": 0.05, "hint": 0.03}
 CORROBORATE_RESERVE = 0.05  # kept back from verify for each recording still to come (its date search)
 ENOUGH = 2  # confirmed earlier copies after which a recording's other candidates are not matched or verified
+RESCUE = 3  # with fewer than ENOUGH found, this many matcher-apart earlier candidates (best aligned first) go to geo
 VERIFY_GUARD = 0.05  # verify one candidate only while this much of --max-usd is left, and keep it in reserve  # stop before a call when less than this is left of --max-usd
 SEARCH_PRICE = 2.50 / 1000  # USD per web search, on top of tokens
 # eval/trace-v2.md: sources, their families, and the choices made before anything is downloaded
@@ -719,11 +720,12 @@ def input_left(src, p, out):
     return cv2.imwrite(str(out), img)
 
 
-def core_evidence(pdir, p, out, model=None):
+def core_evidence(pdir, p, out, model=None, line=None):
     """Three frame pairs from inside the pair's core span (where the two clips really match), so the image shows the
-    link even when the input is cut from a longer video. With an SSCD model, each input frame is shown beside the
-    candidate frame in the core span most like it; without one, beside the frame at the matcher's offset. Returns
-    False when the pair has no core span."""
+    link even when the input is cut from a longer video. With geo's measured line (slope, offset: candidate time =
+    slope * input time + offset), each input frame is shown beside the candidate frame on that line, so a slowed copy
+    shows the same moment; else with an SSCD model, beside the candidate frame in the core span most like it; without
+    one, beside the frame at the matcher's offset. Returns False when the pair has no core span."""
     import cv2
     import numpy as np
     if not p.get("core_a_start_s"):
@@ -731,12 +733,16 @@ def core_evidence(pdir, p, out, model=None):
     ia, ib, core_in, core_cand, k, cover_in, cover_cand = from_input(p)
     path = {f.stem: f for f in pdir.iterdir() if f.is_symlink()}
     ts = evidence_times(path[ia], core_in, cover_in)
+    if line is not None and len(line) > 2:  # inside the input span where geo found its line
+        ts = [line[2] + (line[3] - line[2]) * f for f in (0.2, 0.5, 0.8)]
     widened = ts[-1] > core_in[1] or ts[0] < core_in[0]
     fas = [frame_at(path[ia], t) for t in ts]
     if any(f is None for f in fas):
         return False
     tbs = [t + k for t in ts]
-    if model is not None and core_cand:
+    if line is not None:
+        tbs = [line[0] * t + line[1] for t in ts]
+    elif model is not None and core_cand:
         tbs = speed_times(model, fas, path[ib], ts, k, (cover_cand if widened and cover_cand else core_cand))
     fbs = [frame_at(path[ib], tb) for tb in tbs]
     if any(f is None for f in fbs):
@@ -1037,7 +1043,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
                     f.unlink()
         narrower(model, src, cdir, work, fetched, log)
         fetched.sort(key=lambda r: r.get("posted_at") or "9999")  # the earliest first, so they are the ones verified
-        found = 0
+        found, pairs = 0, {}
         for r in fetched:  # the input against each candidate on its own: no money on candidate-to-candidate pairs
             if found >= ENOUGH:
                 r["fetch"] = "enough_copies"  # later than two confirmed earlier copies: not matched or verified
@@ -1061,6 +1067,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             log(f"trace: {r['clip']} matched in {time.time() - t0:.0f} s")
             if p is None:
                 continue
+            pairs[r["clip"]] = (cand, pdir, out, p)
             ev = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
             if not (p.get("evidence") and core_evidence(pdir, p, run / ev, model)):
                 ev = ""
@@ -1078,7 +1085,16 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             r["possible_source"] = 1 if r["earlier"] == 1 and r["confirmed"] == 0 and possible_source(p) else ""
             found += int(r["confirmed"] == 1 and r["earlier"] == 1)
             if r["confirmed"] == 1 and r["earlier"] == 1:  # at most ENOUGH per recording
-                geo_copy(r, src, cand, geo_check or geo.verify, log)
+                line = geo_line(geo_copy(r, src, cand, geo_check or geo.verify, log))
+                card = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
+                if line and core_evidence(pdir, p, run / card, model, line=line):
+                    r["evidence"] = card
+        apart = [r for r in fetched if r.get("band") == "apart" and r.get("earlier") == 1 and r["clip"] in pairs]
+        for r in sorted(apart, key=lambda r: -float(pairs[r["clip"]][3].get("aligned") or 0))[:RESCUE]:
+            if found >= ENOUGH or not judge:
+                break
+            found += rescue(r, src, *pairs[r["clip"]], run, rec, model, judge, cache, verifier, searcher,
+                            max_usd - reserve, geo_check or geo.verify, log)
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
         r["shown"] = int(bool(shown) and r is shown[0])
@@ -1101,6 +1117,54 @@ def geo_copy(r, src, cand, check, log):
     r["geo"], r["geo_detail"] = g["verdict"], g["reason"]
     r["automatic"] = int(r.get("verify_verdict") == "same" and g["verdict"] == "same")
     log(f"trace: {r['clip']} geo {g['verdict']}: {g['reason']}")
+    return g
+
+
+def rescue(r, src, cand, pdir, out, p, run, rec, model, judge, cache, verifier, searcher, max_usd, check, log):
+    """A candidate the matcher kept apart (an edit or a compilation can hide a copy from it) is confirmed only when
+    geo says same AND verify, asked now, says same. Returns 1 when it is confirmed, else 0; nothing else changes."""
+    try:
+        g = check(src, cand)
+    except Exception as e:
+        log(f"trace: {r['clip']} rescue geo error {type(e).__name__}")
+        return 0
+    log(f"trace: {r['clip']} rescue geo {g['verdict']}: {g['reason']}")
+    left = max_usd - searcher.spent
+    if g["verdict"] != "same" or left < VERIFY_GUARD:
+        return 0
+    with open(out / "pairs.csv", newline="") as f:
+        rd = csv.DictReader(f)
+        cols, prs = rd.fieldnames, list(rd)
+    for x in prs:
+        x["band"] = "unresolved"  # for the verifier only; the row's band is what verify then says
+    with open(out / "pairs.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        w.writerows(prs)
+    spent, _ = verifier(out, judge, cache, max_usd=left - VERIFY_GUARD, workers=1)
+    searcher.spent += spent
+    p = next(iter(csv.DictReader(open(out / "pairs.csv", newline=""))), p)
+    log(f"trace: {r['clip']} rescue verify {p.get('verify_verdict') or 'no answer'}")
+    if p.get("verify_verdict") != "same":
+        return 0
+    card = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
+    line = geo_line(g)
+    if not (line and core_evidence(pdir, p, run / card, model, line=line)):  # the matcher's own card is from its apart alignment
+        log(f"trace: {r['clip']} rescue has no card on geo's line, so it is not confirmed")
+        return 0
+    r.update({"band": "merged", "verify_verdict": "same", "confirmed": 1, "possible_source": "", "geo": g["verdict"],
+              "geo_detail": "found by geo after the matcher kept it apart: " + g["reason"], "automatic": 1, "evidence": card})
+    return 1
+
+
+def geo_line(g):
+    """(slope, offset[, input start, input end]) of geo's measured line, candidate time = slope * input time + offset,
+    and the input span it was found on, when its ridge is as strong as geo's `same` asks (support aside: a slowed copy
+    can fall short there), else None. Used only to pick the card's moments, never to confirm anything."""
+    if not (g.get("ridge_z", 0) >= geo.THRESH["same_z"] and g.get("line_ncc", 0) >= geo.THRESH["same_ncc"]
+            and g.get("slope", 0) > 0):  # written so a NaN fails
+        return None
+    return (g["slope"], g["offset_s"]) + tuple(g.get("a_span_s") or ())
 
 
 def possible_source(p):
