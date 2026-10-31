@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import pytest
 
-from indexreel import bot
+from indexreel import bot, trace
 
 ME = "999"  # the bot's own user id
 FRIEND, STRANGER, OTHER = "111", "222", "333"
@@ -354,6 +354,31 @@ def test_youtube_search_counter_is_respected(tmp_path):
     b = make(tmp_path, fake, left=2)  # fewer than the 3 searches a trace may make
     b.poll()
     assert fake.sent == [] and b.calls.found == []
+
+
+def test_a_place_hint_needs_room_for_its_two_extra_searches(tmp_path):
+    for place, left, analysed in (("Kyoto", 4, False), ("Kyoto", 5, True), ("", 3, True), ("!!", 3, True)):
+        fake = Fake(page(("2", FRIEND, "self")))
+        b = make(tmp_path / f"{place}{left}", fake, calls=Calls(answers=[{**ORIGIN, "claimed_place": place}]), left=left)
+        b.poll()
+        assert bool(b.calls.traced) == analysed, (place, left)
+    assert trace.QUERIES + trace.HINT_QUERIES == 5
+
+
+def test_without_the_data_api_key_the_counter_never_blocks(monkeypatch):
+    monkeypatch.delenv(trace.KEY_NAME, raising=False)
+    assert bot.searches_left() >= bot.searches_needed("Kyoto") == 5 and bot.searches_needed(None) == 3
+
+
+def test_a_first_start_with_no_mentions_still_answers_the_next_one(tmp_path):
+    fake = Fake({}, page(("7", FRIEND, "self")))
+    b = make(tmp_path, fake, since=None)
+    b.poll()
+    b.poll()
+    assert [s[0] for s in fake.sent] == ["7"]
+    c = make(tmp_path, Fake(page(("8", FRIEND, "self"))), since=None)  # a restart keeps the first start's mark
+    c.poll()
+    assert [s[0] for s in c.client.sent] == ["8"]
 
 
 def test_x_spend_cap_stops_replies_and_polling(tmp_path):

@@ -337,8 +337,14 @@ def run_trace(clip, claimed, work, max_usd, place=None):
 
 
 def searches_left():
-    """YouTube Data API searches left today by trace's own counter; without the key trace makes none."""
-    return trace.searches_left() if os.environ.get(trace.KEY_NAME) else trace.QUERIES
+    """YouTube Data API searches left today by trace's own counter; without the key trace makes none, so no limit."""
+    return trace.searches_left() if os.environ.get(trace.KEY_NAME) else float("inf")
+
+
+def searches_needed(place):
+    """Data API searches one check may make: trace's queries, plus the hint queries when the caption's place survives
+    trace's cleaning (the same test trace applies)."""
+    return trace.QUERIES + (trace.HINT_QUERIES if trace.clean_place(place) else 0)
 
 
 class Bot:
@@ -413,7 +419,8 @@ class Bot:
         page = self.call(self.client.mentions, self.state["since_id"])
         tweets, inc = page.get("data") or [], page.get("includes") or {}
         day["x_usd"] += len(tweets) * PRICE["mention"] + len(inc.get("tweets") or []) * PRICE["post_read"]
-        backlog = self.state["since_id"] is None and self.mode != "dry-run"
+        # first start: mentions made before it are not answered; "started" keeps that from repeating when there were none
+        backlog = self.state["since_id"] is None and not self.state.get("started") and self.mode != "dry-run"
         for t in sorted(tweets, key=lambda t: int(t["id"])):
             if self.stopped():
                 break
@@ -427,6 +434,8 @@ class Bot:
             # limit: one page per poll; more than PAGE mentions between two polls skips the oldest of them
             self.state["since_id"] = t["id"]
             self.save()
+        if backlog:
+            self.state["started"] = True
         if backlog and tweets:
             self.say("bot: first start, so mentions made before it are not answered")
         self.save()
@@ -464,7 +473,7 @@ class Bot:
                "the daily analyses cap" if day["analyses"] >= cfg["analyses_day"] else
                "the Spark spend cap" if day["spark_usd"] + cfg["job_usd"] + cfg["guard_usd"] > cfg["spark_day_usd"] else
                "the X spend cap" if day["x_usd"] + PRICE["reply_url"] > cfg["x_day_usd"] else
-               "trace's YouTube search counter" if self.searches_left() < trace.QUERIES else None)
+               "trace's YouTube search counter" if self.searches_left() < searches_needed(q["claimed_place"]) else None)
         if why:
             self.say(f"bot: {mid} not analysed: {why}")
             return self.mark(mid, "capped")

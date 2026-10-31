@@ -49,6 +49,7 @@ PLATFORMS = {"youtube", "x", "tiktok", "instagram", "facebook", "reddit", "vimeo
 MAX_CANDIDATES = 10
 SEARCHES = 3  # web searches Spark is asked to make at most
 QUERIES = 3  # YouTube queries
+HINT_QUERIES = 2  # more queries when the bot passes a caption's place (each may be a Data API search)
 PER_QUERY = 50  # results per YouTube query (yt-dlp and Data API); the pre-rank picks what is fetched
 SIZE = 360  # largest shorter side fetched
 MAX_S = 1800  # longest candidate fetched, seconds (the coarse pass keeps long ones cheap to match)
@@ -870,7 +871,7 @@ class Searcher:
             got, _ = self._spark("hint", clip, HINT_PROMPT + f"\n<<<PLACE\n{self.place}\nPLACE>>>", False)
             got = got.get("queries") if isinstance(got, dict) else None
             got = [" ".join(q.split())[:100] for q in got if isinstance(q, str)] if isinstance(got, list) else []
-            extra = list(dict.fromkeys(q for q in got if q and q not in queries))[:2]
+            extra = list(dict.fromkeys(q for q in got if q and q not in queries))[:HINT_QUERIES]
             self.hinted = set(extra)
         lists = {s: [] for s in ALL_SOURCES}
         info = {}  # url -> {duration, day} known from search
