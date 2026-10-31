@@ -76,7 +76,7 @@ class Calls:
     """Fake fetch, question reader and trace that record what they were asked."""
 
     def __init__(self, shown=True, answers=None, spent=0.30, guard=(False, 0.002)):
-        self.found, self.read, self.traced, self.guarded = [], [], [], []
+        self.found, self.read, self.traced, self.guarded, self.places = [], [], [], [], []
         self.shown, self.answers, self.spent, self.guard_answer = shown, list(answers or []), spent, guard
 
     def find(self, post_id, work):
@@ -96,8 +96,9 @@ class Calls:
             raise self.guard_answer
         return self.guard_answer
 
-    def tracer(self, clip, claimed, work, max_usd):
+    def tracer(self, clip, claimed, work, max_usd, place=None):
         self.traced.append((clip.name, claimed, max_usd))
+        self.places.append(place)
         if isinstance(self.spent, Exception):
             raise self.spent
         shown = {"posted_at": "2019-05-02T00:00:00Z", "platform": "youtube", "url": SOURCE} if self.shown else None
@@ -275,6 +276,15 @@ def test_claimed_date_from_the_caption_only_when_valid_and_not_after_the_post(tm
     b = make(tmp_path, fake, calls=Calls(answers=[{"claimed_date": claimed}]))
     b.poll()
     assert b.calls.traced == [("twitter_2.mp4", used, 0.5)] and fake.sent[0][1] == found_text(used, basis)
+
+
+def test_the_captions_place_goes_to_trace_and_is_none_when_there_is_none(tmp_path):
+    for i, place in enumerate(("Kirandul, Chhattisgarh, India", None)):
+        fake = Fake(page(("2", FRIEND, "self")))
+        b = make(tmp_path / str(i), fake, calls=Calls(answers=[{"claimed_place": place}]))
+        b.poll()
+        assert b.calls.places == [place]  # trace cleans it; the reply text never carries it
+        assert "Kirandul" not in fake.sent[0][1]
 
 
 def test_video_found_up_to_three_hops_up_the_chain(tmp_path):

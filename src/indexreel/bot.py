@@ -8,8 +8,8 @@ Polls the account's mentions. An account on data/bot/allowlist.txt (numeric X us
 video found from its mention up the reply chain (at most HOPS posts up). One Muse Spark call reads the mention and the
 caption of the post holding the video, both as quoted data: what is asked, whether the topic is declined, and the date
 the caption claims. A bare tag or another question gets an offer; a yes to it in the same conversation, or a question
-about the video's origin, runs the check: the clip is fetched with `indexreel fetch` and traced from the clip alone,
-with the caption's claimed date (or else the post's date) as the date to beat, after a check of the clip's middle
+about the video's origin, runs the check: the clip is fetched with `indexreel fetch` and traced from the clip alone
+(the caption's place only adds up to 2 search queries), with the caption's claimed date (or else the post's date) as the date to beat, after a check of the clip's middle
 frame and the caption that declines the same topics. Anyone else gets at most one message a
 week saying how to ask for access. Every reply comes from TEMPLATES and never repeats user text.
 --dry-run (the default) prints the replies, --review queues them in data/bot/outbox/ for `approve`, --auto posts them,
@@ -317,15 +317,16 @@ def post_found(result):
     return True
 
 
-def run_trace(clip, claimed, work, max_usd):
+def run_trace(clip, claimed, work, max_usd, place=None):
     """`indexreel match` on the one clip, then `indexreel trace` from the clip alone with `claimed` (YYYY-MM-DD) as the
-    claimed date, set up as trace's own main does. Returns {shown, checked, card, spent}."""
+    claimed date, set up as trace's own main does. The caption's `place` only adds search queries (trace cleans it).
+    Returns {shown, checked, card, spent}."""
     run, cache = Path(work) / "run", Path.home() / ".cache" / "indexreel"
     cli.match(clip.parent, run, cli.MODEL)
     tcache, key = verify.Cache(cache / "trace"), os.environ.get(trace.KEY_NAME)
     searcher = trace.Searcher(trace.SparkSearch(cache / "verify" / "clips"), tcache, max_usd=max_usd,
                               google=trace.Google(key) if key else None, thumbs=trace.Thumbs(cli.MODEL, tcache),
-                              meta=trace.post_meta)
+                              meta=trace.post_meta, place=place)
     rows = trace.trace(run, searcher, cli.MODEL, {clip.stem: claimed}, verify.SparkJudge(cache / "verify" / "clips"),
                        verify.Cache(cache / "verify" / "answers"))
     shown = next((r for r in rows if r.get("shown") == 1), None)
@@ -487,7 +488,7 @@ class Bot:
                 return self.send(mid, render("topic"))
         claimed, basis = claimed_date(q["claimed_date"], str(post.get("created_at") or "")[:10])
         try:
-            res = self.tracer(clip, claimed, work, cfg["job_usd"])
+            res = self.tracer(clip, claimed, work, cfg["job_usd"], place=q["claimed_place"])
         except Exception as e:
             day["spark_usd"] += cfg["job_usd"]  # spend unknown: count the whole job cap
             self.say(f"bot: {mid} trace failed: {type(e).__name__}: {str(e)[:200]}")
