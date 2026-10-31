@@ -40,12 +40,33 @@ The rest of this page is for developers and researchers.
 
 | Meta model or tool | What it does in IndexReel | How it did in my tests |
 |---|---|---|
-| **SSCD** (Meta AI's copy-detection model, `sscd_disc_mixup`) | Turns every frame, and its mirror image, into a vector. All matching is built on it. | Ranked the true original first on 96/96 real phone re-films; 0/1,080 wrong joins in held-out run 2. It also scores two takes of the same view as copies, which is why nothing is decided on it alone. |
-| **Muse Spark** | Checks uncertain and merged pairs; writes the searches for earlier uploads from the frames; suggests caption claims; on X, reads what a person asks and declines political topics. | Called its own original the same on 91/96 re-films, with 0 false "same" in 1,440 other pairs. It was fooled by two takes of one view in one cheap call, which is why an automatic answer also needs the geometric check. |
-| **Ray-Ban Meta glasses** | The second camera for my own test footage: the airshow clip in the example and the two-camera same-moment test. | |
+| **SSCD** (Meta AI's copy-detection model, `sscd_disc_mixup`) | Turns every frame, and its mirror image, into a vector. All matching is built on it. | Ranked the true original first on 96/96 real phone re-films; 0/1,080 wrong joins in held-out run 2. It also scores two takes of the same view as copies, so nothing is decided on it alone. |
+| **Muse Spark** | Checks uncertain and merged pairs; writes the searches for earlier uploads from the frames; suggests caption claims; on X, reads what a person asks and declines political topics. | Same footage in both orders on 14/14 edited copies, 0/42 non-copies called same. One cheap call took two takes of one view for one recording. |
+| **Muse Spark Open** (open weights) | The same check run on my own GPU, to see whether open weights hold up. | Its own original called same on 91/96 re-films; 0 false "same" in 1,440 other pairs. |
+| **Muse Voice Transcribe** | On X, when a caption names no place, a place said in the video can add searches. | Of 41 test clips, one had speech naming a place its caption lacked. |
+| **Ray-Ban Meta glasses** | The second camera for my own test footage: the airshow clip in the example and the two-camera same-moment tests. | |
 | **Meta's Video Similarity Challenge** (VSC 2022) | The idea behind the time check: a copy shows up as one straight line in a frame-by-frame similarity grid. | |
 | **PDQ** (Meta's perceptual image hash) | A comparison only. | Ranked the true original first on 67/96 re-films, against SSCD's 96/96. |
-| **SAM 3.1** | Tested as the screen and inset finder. Not used: a simple OpenCV finder did better on re-films. | FAIL (first row of the results). |
+| **SAM 3.1** | Tested as the screen finder. Not used. | Lost the first test 1/4 to OpenCV's 4/4 on simulated re-films. A later check found most of that came from my prompt word ("screen" found 3 of 8 screens, "television screen" 6 of 8) and from scoring with PDQ; with both fixed it reached 3/4, still behind OpenCV. |
+| **Muse Wonder** | Tried as the judge for the hardest pairs. Not used. | Found 10 of 12 hard true copies against Spark's 9, but called 2 of 12 pairs of different takes the same recording, at about five times the cost. |
+
+## Choices, and what each one costs
+
+Each choice below was measured against at least one alternative. The numbers come from the results table or from exploratory checks run after a test.
+
+| Choice | What I gave up | Why |
+|---|---|---|
+| Match with SSCD, not PDQ | Nothing measurable | 96/96 against 67/96 on real re-films. |
+| Never decide a match on SSCD's score alone | Every merged pair costs a Spark call | SSCD merged 24 same-place pairs of different recordings, and all 8 same-view pairs. Verify split every one. |
+| OpenCV to find a filmed screen, not SAM 3.1 | SAM caught one inset that OpenCV missed | OpenCV 4/4 on re-films; SAM 3/4 even with the prompt and scoring fixed after the fact. |
+| Muse Spark as judge, not Muse Wonder | One portrait re-film Wonder finds and Spark misses | Wonder called 2 of 12 different-take pairs the same; a false "same" is a false public statement. |
+| Post on X on its own only when Spark and the geometric check both say same | Some true copies wait for a person: on trace v3, 1 of 6 | Each check was fooled where the other was not: Spark by two pans of one view, the geometric check by one same-view pair that Spark refused. The geometric check also read 3 true copies as different, so it can only allow a post, never block a match. |
+| A re-ask counts a yes in either order | Nothing measurable | Requiring both orders would have lost 4 true pairs of 68 and stopped no false one. |
+| Search from what the footage shows; a caption's place only adds searches, on X only | Some originals a caption could point to | On the red-sky post a Hindi search built from the caption's place found an upload from the day before. On the trace cases the same hint pushed one true source from 8th to 18th place, so trace leaves it off. |
+| 10 candidates fetched per recording, not 20 | Nothing measurable | 15 or 20 found no extra source on 32 cases, at about 40 s per extra candidate. |
+| No search of Instagram or Facebook through web search | 3 of 4 v3 misses were Facebook or Instagram posts | A prompt aimed at them reached 9 sources of 20 against 10 without it, for $1. |
+| Evidence frames from inside the matching stretch, not the sharpest frames nearby | A short match can show three similar frames | Every wrong statement in the trace tests was an evidence image that did not show the link: frames from outside the matching stretch, or a mirror guessed wrong. Frames now come from inside the stretch, and the mirror is decided from the pixels. |
+| Same moment from sound, with checks that the lag is unique | A copied soundtrack fools it | A brightness-over-time picture check never agreed across cameras facing different ways; a repeating beep makes a sound-only rule claim 8 false matches. On the same takes the uniqueness checks refuse it (development data; the fresh test was not run). |
 
 ## Quickstart
 
