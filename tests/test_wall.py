@@ -967,3 +967,8 @@ def test_the_page_does_not_claim_the_same_moment_unless_the_rule_passed():
     claim = box.index("Two cameras recorded the same moment")
     assert box.index("s.rule_passed === true") < claim  # the claim sits inside the passed branch
     assert "same place, not a shared event" in box
+
+
+def test_the_pair_card_does_not_state_a_mirror_the_image_label_is_the_only_place():
+    page = wall.PAGE.read_text()  # the pairs.csv flag is SSCD's and can disagree with the pixels; the image says it
+    assert "one clip mirrored" not in page and "${mirrored}" not in page

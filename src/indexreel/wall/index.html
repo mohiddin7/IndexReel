@@ -157,7 +157,6 @@ function pairCard(p) {
   const d = p.decision;
   const hand = d ? `<span class="badge hand">${esc(d.action === "approve_merge" ? "approved by hand" : "split by hand")}</span>` : "";
   const note = d && d.note ? `<div class="small muted">Your note: ${esc(d.note)}</div>` : "";
-  const mirrored = p.mirrored ? " · one clip mirrored" : "";
   const off = (p.offset_s >= 0 ? "+" : "") + num(p.offset_s, 1);
   const span = p.core
     ? `matching core: ${nm(p.a)} ${num(p.core[0][0], 1)}–${num(p.core[0][1], 1)} s · ${nm(p.b)} ${num(p.core[1][0], 1)}–${num(p.core[1][1], 1)} s`
@@ -167,7 +166,7 @@ function pairCard(p) {
     <div class="pair">
       <div>${evidence(p)}</div>
       <div>${meter(p)}
-        <div class="small muted">${span} · offset ${off} s${mirrored}</div>
+        <div class="small muted">${span} · offset ${off} s</div>
         ${sharedNote(p)}${history(p)}${note}
         ${RECORDED ? "" : `<div class="actions">
           <input type="text" aria-label="Note for ${esc(p.a)} and ${esc(p.b)}" placeholder="Note (optional)" maxlength="500">
