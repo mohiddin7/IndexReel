@@ -68,6 +68,46 @@ Each choice below was measured against at least one alternative. The numbers com
 | Evidence frames from inside the matching stretch, not the sharpest frames nearby | A short match can show three similar frames | Every wrong statement in the trace tests was an evidence image that did not show the link: frames from outside the matching stretch, or a mirror guessed wrong. Frames now come from inside the stretch, and the mirror is decided from the pixels. |
 | Same moment from sound, with checks that the lag is unique | A copied soundtrack fools it | A brightness-over-time picture check never agreed across cameras facing different ways; a repeating beep makes a sound-only rule claim 8 false matches. On the same takes the uniqueness checks refuse it (development data; the fresh test was not run). |
 
+## What it costs
+
+Money decides most of the choices above, so here it is in one place. Prices are list prices.
+
+**Per check**
+
+| Step | Cost | Time |
+|---|---|---|
+| Matching (SSCD, the time line, the geometric check) | $0, on a laptop CPU | the geometric check takes 10 to 25 s per confirmed copy |
+| Muse Spark, one batch of up to 4 pairs at 180 px | about 1 to 2 cents | seconds |
+| Muse Spark re-ask at 360 px, both orders | about 8 cents | |
+| Muse Wonder, one hard pair | about 10 cents, five times Spark | about 30 s |
+| Muse Voice Transcribe | $0.18 per hour of speech; a free loudness check skips silent clips | |
+| SAM 3.1 through the Meta Model API | $0.20 per 1,000 frames | |
+| YouTube Data API search | free, but 100 searches a day; a check uses 3, or 5 with a caption's place | |
+
+**Per answer on X**
+
+| | Cost |
+|---|---|
+| Muse Spark for one video (reading the question, the topic check, the searches, verify) | about 12 cents on my three tags |
+| X, a reply with a link | $0.20 at the pay-per-use price I was given; not yet checked against a bill |
+| X, a reply without a link ("none found") | 1 cent |
+| Time from tag to queued reply | 12 to 18 minutes |
+
+So one answered tag costs about 30 cents, and the daily caps (25 checks, 3 per person, $5 of Spark, $5 of X) keep a bad day under about $10.
+
+**Per test.** Every test ran under a cap written down before it ran:
+
+| Test | Spend |
+|---|---|
+| held-out run 2 verify | $0.17 |
+| real re-films | $0.47 |
+| same place | $0.90 |
+| same view | $0.06 |
+| same moment | $0.87 |
+| trace v1, v2, v3 | $1.16, $1.97, $1.06 |
+
+v2 is the cautionary one: its $2 cap ran out before the last recordings were searched.
+
 ## Quickstart
 
 Python 3.12.
