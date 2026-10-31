@@ -10,7 +10,9 @@ You give IndexReel the clips, or links to public X posts. It groups them by the 
 
 It also reads each post's caption and suggests the claims the post makes about its footage, such as the place, the date and what happens, each with the exact caption words it came from. You approve or reject each claim. If one recording later turns out to be old or from somewhere else, you withdraw it, and IndexReel lists which approved claims are left with no video behind them.
 
-For each recording it can also search YouTube and the web for earlier uploads of the same footage. When it confirms one, the page shows where and when that copy was posted, with matching frames, next to the claims made today. The search is built from what the footage shows, never from what the post claims, because the claim may be the part that is wrong.
+For each recording it can also search YouTube and the web for earlier uploads of the same footage. When it confirms one, the page shows where and when that copy was posted, with matching frames, next to the claims made today. The searches are written from what the footage shows. When the X account is asked about a post, a place named in its caption can add two more searches (in English and the place's main language), but it never decides a match, because the claim may be the part that is wrong.
+
+On X, you can tag @askIndexReel under a post with a video and ask whether it is new. It runs the earlier-copy search on that one video and replies with the earliest matching upload it could confirm, with its link and the frames side by side, or says it found none among the videos it checked. A reply is posted on its own only when both checks agree; anything else waits for me to review. Access is limited to a list of accounts, because the budget is small.
 
 ## You make the call
 
@@ -33,6 +35,17 @@ Every test below was written down, with its pass bar, and committed before it wa
 ---
 
 The rest of this page is for developers and researchers.
+
+## Built with Meta
+
+| Meta model or tool | What it does in IndexReel | How it did in my tests |
+|---|---|---|
+| **SSCD** (Meta AI's copy-detection model, `sscd_disc_mixup`) | Turns every frame, and its mirror image, into a vector. All matching is built on it. | Ranked the true original first on 96/96 real phone re-films; 0/1,080 wrong joins in held-out run 2. It also scores two takes of the same view as copies, which is why nothing is decided on it alone. |
+| **Muse Spark** | Checks uncertain and merged pairs; writes the searches for earlier uploads from the frames; suggests caption claims; on X, reads what a person asks and declines political topics. | Called its own original the same on 91/96 re-films, with 0 false "same" in 1,440 other pairs. It was fooled by two takes of one view in one cheap call, which is why an automatic answer also needs the geometric check. |
+| **Ray-Ban Meta glasses** | The second camera for my own test footage: the airshow clip in the example and the two-camera same-moment test. | |
+| **Meta's Video Similarity Challenge** (VSC 2022) | The idea behind the time check: a copy shows up as one straight line in a frame-by-frame similarity grid. | |
+| **PDQ** (Meta's perceptual image hash) | A comparison only. | Ranked the true original first on 67/96 re-films, against SSCD's 96/96. |
+| **SAM 3.1** | Tested as the screen and inset finder. Not used: a simple OpenCV finder did better on re-films. | FAIL (first row of the results). |
 
 ## Quickstart
 
@@ -63,9 +76,9 @@ The local pages listen on 127.0.0.1 only. The new-run form takes only https post
 4. **Verify (optional, paid).** Muse Spark sees every unresolved pair and re-checks every merged pair: one anchor clip and up to four candidates per request, 180 px, minimal reasoning effort. An unresolved pair it calls the same recording becomes merged, and one it calls different becomes apart. A merged pair it does not confirm goes back to unresolved for a person. A pair is re-asked at 360 px in both orders when its answers conflict, when Spark says same but the two clips' sound clearly does not match, and before a link is shown as shared footage. Sound never sets a verdict on its own.
 5. **Group.** Recordings are the connected components of the merged pairs. Merging is not transitive, so an `apart` pair inside a recording is kept and shown as a conflict. A clip whose merged links cover different stretches from two recordings is suggested as a compilation, and joins nothing until a person confirms or dismisses it. A merged link that covers only part of both clips is recorded as shared footage instead of joining the recordings (experimental, see below).
 6. **Claims (optional, paid).** Muse Spark reads every caption in one request and lists the claims about the footage, grouping the same claim across posts. Code drops any claim whose quote is not an exact substring of its caption. Every row starts as `suggested`.
-7. **Earlier copies (optional, paid).** For each recording, Muse Spark looks at the clip and writes searches from what it shows; one search runs on the web, told to avoid fact-checking sites, and others on YouTube through yt-dlp, including the likely source's own channel. Candidates are fetched at low resolution, long ones are first scanned at one frame every 4 s, and each is matched against the recording with the steps above. A copy counts only when it is merged and verified, and the earliest one the platform dates before the claimed date is shown. Every page the web search returns is logged.
+7. **Earlier copies (optional, paid).** For each recording, Muse Spark looks at the clip and writes searches from what it shows; one search runs on the web, told to avoid fact-checking sites, and others on YouTube through yt-dlp, including the likely source's own channel. Candidates are fetched at low resolution, long ones are first scanned at one frame every 4 s, and each is matched against the recording with the steps above. A copy counts only when it is merged and verified, and the earliest one the platform dates before the claimed date is shown. Each confirmed copy then gets a geometric check: local features line the two videos up (mirror, crop, scale), and the moving detail must line up over time along one straight line, which gives the speed and the offset. A copy is marked automatic only when Muse Spark and the geometric check both say same; otherwise the page says "check it yourself". The geometric check never overrules a match it cannot confirm: in an exploratory check on the trace v3 pairs it read 3 true copies as different. Every page the web search returns is logged.
 8. **Decide.** On the page a person approves or splits a pair, confirms or dismisses a compilation, and approves or rejects each claim. Every decision is appended to `audit.jsonl`, and recordings are recomputed from the pairs plus the audit.
-9. **Withdraw.** For one recording, each approved claim that cites it is listed as lost (every cited clip is in that recording), kept (another cited clip is in a different recording) or undecided (the other clips are tied to it by an unresolved pair). For a compilation, the page says which seconds of it come from the withdrawn recording.
+9. **Withdraw.** For one recording, each approved claim that cites it is listed as lost (every cited clip is in that recording), still cited by footage from another recording (not checked to show the same event), with how that recording's links were made, or undecided (the other clips are tied to it by an unresolved pair). For a compilation, the page says which seconds of it come from the withdrawn recording.
 
 SAM 3.1 was tested as the localiser and is not used (see the first row below). PDQ, Meta's perceptual image hash, is used only as a comparison.
 
