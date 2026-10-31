@@ -112,3 +112,36 @@ def test_a_sheet_with_a_status_column_counts_only_approved_rows(tmp_path):
     claims, text = withdraw.read_claims(p, log=logs.append)
     assert claims == {"c1": ["a_orig"], "c3": ["b_cam2"]} and "c2" not in text
     assert logs == ["claims: 2 of 4 rows are not approved and are not counted"]
+
+
+def test_kept_claims_say_how_each_remaining_join_was_made(recs, capsys, tmp_path):
+    # still cited by a recording the matcher separated: a person approved a_copy~a_refilm, the machine joined the others
+    joins = withdraw.run_joins(RUN)
+    out = withdraw.withdraw(recs, {"k3": ["a_refilm", "b_cam1"]}, rec_of(recs, "b_cam1"), joins)
+    how = {j["pair"]: j["how"] for j in out["kept"][0]["joins"]}
+    assert how == {"a_copy~a_orig": "joined automatically by the matcher (the verifier did not check it)",
+                   "a_orig~a_refilm": "joined automatically by the matcher (the verifier did not check it)",
+                   "a_copy~a_refilm": "approved by a person"}
+    assert withdraw.withdraw(recs, {"k3": ["a_refilm", "b_cam1"]}, rec_of(recs, "b_cam1"))["kept"][0]["joins"] == []
+    claims = tmp_path / "claims.csv"
+    claims.write_text("clip,claim_id,claim_text\na_refilm,k3,Paris\nb_cam1,k3,Paris\n")
+    withdraw.main([str(RUN), "--claims", str(claims), "--clip", "b_cam1"])
+    text = capsys.readouterr().out
+    assert "Still cited by footage from another recording (not checked to show the same event) (1)" in text
+    assert "Keep some video support" not in text and "approved by a person" in text
+
+
+def test_join_how_names_who_decided():
+    row = lambda band, verdict: {"pair_id": f"{band}-{verdict}", "band": band, "verify_verdict": verdict}
+    rows = [row("merged", ""), row("merged", "same"), row("unresolved", "same"), row("unresolved", "different"),
+            row("unresolved", ""), row("apart", "")]
+    assert withdraw.join_how(rows, []) == {
+        "merged-": "joined automatically by the matcher (the verifier did not check it)",
+        "merged-same": "joined automatically (matcher and verifier agree)",
+        "unresolved-same": "joined automatically by the verifier (the matcher was unsure)"}
+    # a person's approval wins over the machine's reading; a later reset hands the pair back to it
+    audit = [{"action": "approve_merge", "pair": "unresolved-"}, {"action": "approve_merge", "pair": "merged-same"},
+             {"action": "approve_merge", "pair": "merged-"}, {"action": "reset", "pair": "merged-"}]
+    how = withdraw.join_how(rows, audit)
+    assert how["unresolved-"] == how["merged-same"] == "approved by a person"
+    assert how["merged-"] == "joined automatically by the matcher (the verifier did not check it)"

@@ -230,7 +230,7 @@ def withdraw_view(run, claims, recording):
             if r["clip"] not in clips:
                 clips.append(r["clip"])
             text.setdefault(r["claim_id"], r["claim_text"])
-    out = withdraw.withdraw(withdraw.run_recordings(run), by_claim, recording)
+    out = withdraw.withdraw(withdraw.run_recordings(run), by_claim, recording, withdraw.run_joins(run))
     return out | {"text": text, "pending": sum(r["status"] == "suggested" for r in rows)}
 
 

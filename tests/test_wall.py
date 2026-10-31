@@ -159,6 +159,18 @@ def test_withdraw_view_sorts_claims_with_the_audit_applied(run, tmp_path):
     assert [(e["claim_id"], e["tied_by"]) for e in out["undecided"]] == [("c3", ["b_cam1~b_cam2"])]
 
 
+def test_withdraw_view_says_how_each_join_of_a_kept_claim_was_made_and_the_page_words_it(run, tmp_path):
+    (tmp_path / "claims.csv").write_text("clip,claim_id,claim_text\na_orig,c5,filmed twice\nb_cam1,c5,filmed twice\n")
+    out = wall.withdraw_view(run, tmp_path / "claims.csv", "r2")
+    assert [e["claim_id"] for e in out["kept"]] == ["c5"]
+    how = {j["pair"]: j["how"] for j in out["kept"][0]["joins"]}
+    assert how["a_copy~a_refilm"] == "approved by a person"  # the audit's approve_merge
+    assert how["a_orig~a_refilm"].startswith("joined automatically")
+    page = (Path(wall.__file__).parent / "index.html").read_text()
+    assert "Still cited by footage from another recording (not checked to show the same event)" in page
+    assert "Keep some video support" not in page and "e.joins" in page
+
+
 def test_http_withdraw_and_its_errors(claims_server, server):
     status, body = call(claims_server, "GET", "/api/withdraw?recording=r1")
     assert status == 200 and [e["claim_id"] for e in json.loads(body)["lost"]] == ["c1"]
@@ -705,7 +717,7 @@ def test_the_page_and_the_terminal_count_the_same_claims(run, sheet, tmp_path):
                 mine.setdefault(r["claim_id"], []).append(r["clip"])
         assert mine == by_claim
         out = wall.withdraw_view(run, f, "r1")
-        theirs = withdraw.withdraw(withdraw.run_recordings(run), by_claim, "r1")
+        theirs = withdraw.withdraw(withdraw.run_recordings(run), by_claim, "r1", withdraw.run_joins(run))
         assert {k: [e["claim_id"] for e in out[k]] for k in ("lost", "kept", "undecided")} == {k: [e["claim_id"] for e in theirs[k]] for k in ("lost", "kept", "undecided")}
         assert out["unaffected"] == theirs["unaffected"]
 

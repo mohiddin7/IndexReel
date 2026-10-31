@@ -422,13 +422,17 @@ function withdrawLists(out) {
     const partial = e.partial.map((l) => `<div class="small muted">${nm(l.clip)} still supports it over ${sp(l)} (${esc(l.recording)})</div>`).join("");
     const possible = (e.possible || []).map((l) => `<div class="small muted">possible: ${nm(l.clip)} over ${sp(l)} (${esc(l.recording)})${note(l)}</div>`).join("");
     const unconfirmed = (e.unconfirmed || []).map((c) => `<div class="small">Confirm or dismiss the possible compilation <a href="#clip-${esc(c)}">${nm(c)}</a> to decide.</div>`).join("");
-    return `<li><strong>${esc(e.claim_id)}</strong>${text(e.claim_id)}${left}${tied}${lostSpans}${partial}${possible}${unconfirmed}</li>`;
+    const joins = (e.joins || []).map((j) => {
+      const p = S.pairs.find((x) => x.id === j.pair);
+      return `<div class="small muted">${esc(j.recording)}: <a href="#pair-${esc(j.pair)}">${p ? `${nm(p.a)} with ${nm(p.b)}` : esc(j.pair)}</a> ${esc(j.how)}</div>`;
+    }).join("");
+    return `<li><strong>${esc(e.claim_id)}</strong>${text(e.claim_id)}${left}${tied}${joins}${lostSpans}${partial}${possible}${unconfirmed}</li>`;
   };
   const list = (title, rows, cls = "") => `<h3 class="${cls}">${title} (${rows.length})</h3>${rows.length ? `<ul class="claims">${rows.join("")}</ul>` : `<p class="muted small">none</p>`}`;
   const open = w.unresolved_pairs.length ? `<div class="warn">Pairs still undecided against this recording: ${w.unresolved_pairs.map((id) => `<a href="#pair-${esc(id)}">${esc(id)}</a>`).join(", ")}.</div>` : "";
   return `<p>Withdrawn: <strong>${esc(w.id)}</strong> (${esc(w.status)}), clips ${w.members.map(nm).join(", ")}</p>${open}
     ${list("Lose all video support", out.lost.map(item), "lost-h")}
-    ${list("Keep some video support", out.kept.map(item))}
+    ${list("Still cited by footage from another recording (not checked to show the same event)", out.kept.map(item))}
     ${list("Undecided: the rest may be the same recording", out.undecided.map(item))}
     ${list("Unaffected", out.unaffected.map((id) => `<li><strong>${esc(id)}</strong>${text(id)}</li>`))}`;
 }

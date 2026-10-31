@@ -34,6 +34,37 @@ def run_recordings(run_dir, audit=None):
     return recs
 
 
+def join_how(rows, audit):
+    """{pair id: how that pair joined its clips}, for the pairs that are merged in the end: a person approved it, or it
+    joined automatically (the matcher alone, matcher and verifier agreeing, or the verifier over an unsure matcher)."""
+    approved = {}
+    for e in audit:  # the last entry for a pair counts; reset hands it back to the machine
+        if e.get("pair") and e["action"] in ("approve_merge", "split", "reset"):
+            approved[e["pair"]] = e["action"] == "approve_merge"
+    out = {}
+    for r in rows:
+        verdict = r.get("verify_verdict") or ""
+        if approved.get(r["pair_id"]):
+            out[r["pair_id"]] = "approved by a person"
+        elif r["band"] == "unresolved" and verdict == "same":
+            out[r["pair_id"]] = "joined automatically by the verifier (the matcher was unsure)"
+        elif r["band"] == "merged" and verdict == "same":
+            out[r["pair_id"]] = "joined automatically (matcher and verifier agree)"
+        elif r["band"] == "merged":
+            out[r["pair_id"]] = "joined automatically by the matcher (the verifier did not check it)"
+    return out
+
+
+def run_joins(run_dir, audit=None):
+    """join_how for a run directory; audit=None reads audit.jsonl."""
+    run_dir = Path(run_dir)
+    rows = list(csv.DictReader(open(run_dir / "pairs.csv", newline="")))
+    if audit is None:
+        f = run_dir / "audit.jsonl"
+        audit = [json.loads(line) for line in f.read_text().splitlines() if line.strip()] if f.exists() else []
+    return join_how(rows, audit)
+
+
 def read_claims(path, log=print):
     """{claim_id: [cited clip ids]} and {claim_id: claim_text}, in file order. A sheet with a `status` column (written
     by `indexreel claims`) counts only its approved rows and says how many it skipped; one without counts every row."""
@@ -53,10 +84,12 @@ def read_claims(path, log=print):
     return claims, text
 
 
-def withdraw(recs, claims, withdrawn):
+def withdraw(recs, claims, withdrawn, joins=None):
     """Sort the claims citing recording `withdrawn` by what video support they have left.
 
-    kept: some cited clip lies in a recording the matcher separated from the withdrawn one.
+    kept: some cited clip lies in a recording the matcher separated from the withdrawn one. That says the footage is
+    still cited, not that it shows the same event: a copy the matcher missed or another event reads the same. With
+    `joins` (run_joins) each entry lists, for the recordings it still cites, how each of their pairs was joined.
     undecided: every remaining recording is tied to the withdrawn one by an unresolved pair, so it may be the same
     recording; this is neither support nor loss until a person decides the pair.
     lost: every cited clip is in the withdrawn recording.
@@ -110,7 +143,9 @@ def withdraw(recs, claims, withdrawn):
         out[kind].append({"claim_id": cid, "remaining": left,
                           "tied_by": [] if free else sorted({p for r in remaining for p in tied[r]}),
                           "partial": [p for p in parts if p["recording"] in left], "lost_spans": lost_spans,
-                          "possible": possible, "unconfirmed": unconfirmed})
+                          "possible": possible, "unconfirmed": unconfirmed,
+                          "joins": [{"recording": r, "pair": p, "how": joins[p]} for r in left
+                                    for p in by_id[r]["evidence_pairs"] if p in (joins or {})]})
     return out
 
 
@@ -128,20 +163,22 @@ def main(argv=None):
         ap.error(f"clip {a.clip!r} is not in this run")
     claims, text = read_claims(a.claims)
     try:
-        out = withdraw(recs, claims, rid)
+        out = withdraw(recs, claims, rid, run_joins(a.run_dir))
     except ValueError as e:
         ap.error(str(e))
     w = out["withdrawn"]
     print(f"Withdrawn: {rid} ({w['status']}): {', '.join(w['members'])}")
     if w["unresolved_pairs"]:
         print(f"  Still undecided against it: {', '.join(w['unresolved_pairs'])}")
-    for kind, title in (("lost", "Lose all video support"), ("kept", "Keep some video support"),
+    for kind, title in (("lost", "Lose all video support"), ("kept", "Still cited by footage from another recording (not checked to show the same event)"),
                         ("undecided", "Undecided: the rest may be the same recording")):
         print(f"\n{title} ({len(out[kind])})")
         for e in out[kind]:
             extra = f"; open pairs {', '.join(e['tied_by'])}" if e["tied_by"] else ""
             left = f" -> {', '.join(e['remaining'])}" if e["remaining"] else ""
             print(f"  {e['claim_id']}: {text.get(e['claim_id'], '')}{left}{extra}")
+            for j in e["joins"]:
+                print(f"    {j['recording']}: {j['pair']} {j['how']}")
             for p in e["lost_spans"]:
                 print(f"    lost: {p['clip']} contains footage of {rid} over {p['start_s']:g} to {p['end_s']:g} s")
             for p in e["partial"]:
