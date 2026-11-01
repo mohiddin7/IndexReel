@@ -47,6 +47,7 @@ The rest of this page is for developers and researchers.
 | Ray-Ban Meta glasses | The second camera for my own test footage: the airshow clip in the example and the two-camera same-moment tests. | |
 | Meta's Video Similarity Challenge (VSC 2022) | The idea behind the time check: a copy shows up as one straight line in a frame-by-frame similarity grid. | |
 | PDQ (Meta's perceptual image hash) | A comparison only. | Ranked the true original first on 67/96 re-films, against SSCD's 96/96. |
+| vPDQ and TMK+PDQF (Meta's video hashes, from ThreatExchange) | A comparison only. | On the 96 real re-films, TMK ranked the true original first on 80 and vPDQ matched none at its own threshold. Both find WhatsApp copies of the same file, as PDQ already does, and neither separates two takes of one view from a copy. |
 | SAM 3.1 | Tested as the screen finder. Not used. | Lost the first test 1/4 to OpenCV's 4/4 on simulated re-films. A later check found most of that came from my prompt word ("screen" found 3 of 8 screens, "television screen" 6 of 8) and from scoring with PDQ; with both fixed it reached 3/4, still behind OpenCV. |
 | Muse Wonder | Tried as the judge for the hardest pairs. Not used. | Found 10 of 12 hard true copies against Spark's 9, but called 2 of 12 pairs of different takes the same recording, at about five times the cost. |
 
