@@ -1,5 +1,6 @@
 import http.client
 import json
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -344,6 +345,16 @@ def test_every_results_group_states_its_tests_own_verdict_and_the_rows_agree():
         assert failed == verdict.startswith("FAIL"), g  # a PASS test has no failed row; a FAIL test has at least one
     page = wall.PAGE.read_text()
     assert "Test verdict:" in page
+
+
+def test_every_results_group_has_one_heading_id_for_links():
+    rows = wall.read_results(wall.RESULTS)
+    firsts = [r for i, r in enumerate(rows) if i == 0 or rows[i - 1]["group"] != r["group"]]
+    assert len({r["group"] for r in rows}) == len(firsts)  # a group is one run of rows
+    ids = [r.get("id", "") for r in firsts]
+    assert all(re.fullmatch(r"res-[a-z0-9-]+", i) for i in ids) and len(set(ids)) == len(ids)
+    assert not any("id" in r for r in rows if r not in firsts)
+    assert "res-trace-v4" in ids and 'id="${esc(id)}"' in wall.PAGE.read_text()
 
 
 def test_results_reach_the_state_the_server_and_the_export(run, tmp_path):
