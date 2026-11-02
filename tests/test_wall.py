@@ -10,7 +10,7 @@ import pytest
 from indexreel import wall
 
 FIXTURE = Path(__file__).parent / "fixtures" / "run_fake"
-DISCLAIMER = "This shows which clips come from the same recording. It does not say whether anything is true or false."
+DISCLAIMER = "This shows which clips come from the same recording."
 
 
 @pytest.fixture

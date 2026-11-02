@@ -173,7 +173,7 @@ JSON = {"Content-Type": "application/json"}
 
 def test_http_new_run_end_to_end_and_the_run_opens_under_its_own_path(server):
     status, body, _ = call(server, "GET", "/")
-    assert status == 200 and b"New run" in body.replace(b"new run", b"New run") and b"does not say whether anything is true or false" in body
+    assert status == 200 and b"New run" in body.replace(b"new run", b"New run") and b"This shows which clips come from the same recording." in body
     assert json.loads(call(server, "GET", "/api/runs")[1])["runs"] == []
     rid = json.loads(call(server, "POST", "/api/runs", "{}", JSON)[1])["id"]
     status, body, _ = call(server, "POST", f"/api/runs/{rid}/files", b"video bytes", {"Content-Type": "application/octet-stream", "X-Filename": "my%20clip.mp4"})
