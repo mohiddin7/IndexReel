@@ -36,6 +36,8 @@ summary { cursor: pointer; margin: 8px 0; font-weight: 600; }
 .chip { border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; font-size: 13px; }
 .pair { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 16px; }
 @media (max-width: 700px) { .pair { grid-template-columns: 1fr; } }
+[id] { scroll-margin-top: 24px; }  /* a link to a card leaves room above it */
+@media (min-width: 1500px) { header, main { max-width: 1400px; } .pair { grid-template-columns: minmax(0, 520px) minmax(0, 1fr); } }  /* a 1920 px screen: the evidence images stay readable */
 .pair img { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; display: block; }
 .noimg { border: 1px dashed var(--line); border-radius: 4px; padding: 24px 8px; text-align: center; }
 .meter { position: relative; height: 10px; background: var(--line); border-radius: 5px; margin: 14px 0 4px; }
