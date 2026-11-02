@@ -1,3 +1,8 @@
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
@@ -5,9 +10,8 @@ import pytest
 from indexreel import geo
 
 
-@pytest.mark.skipif(not geo.SSCD_PATH.exists(), reason="SSCD model not in data/models")
-def test_a_mirrored_cropped_slowed_copy_is_same_with_its_speed_and_offset(tmp_path):
-    """The frozen self-test: B is moving blobs over a textured still; A = mirrored, 0.56x crop, played at 0.67x."""
+def make_pair(tmp_path):
+    """B is moving blobs over a textured still; A = mirrored, 0.56x crop, played at 0.67x."""
     rng = np.random.default_rng(0)
     base = cv2.GaussianBlur(rng.integers(0, 255, (360, 640)).astype(np.uint8), (0, 0), 2)
     base = cv2.cvtColor(base, cv2.COLOR_GRAY2BGR)
@@ -26,6 +30,13 @@ def test_a_mirrored_cropped_slowed_copy_is_same_with_its_speed_and_offset(tmp_pa
         f = frames[min(int(k * 0.67) + 40, 239)][:, 140:500][:, ::-1]
         va.write(np.ascontiguousarray(f))
     va.release()
+    return pa, pb
+
+
+@pytest.mark.skipif(not geo.SSCD_PATH.exists(), reason="SSCD model not in data/models")
+def test_a_mirrored_cropped_slowed_copy_is_same_with_its_speed_and_offset(tmp_path):
+    """The frozen self-test."""
+    pa, pb = make_pair(tmp_path)
     o = geo.verify(pa, pb)
     assert o["verdict"] == "same" and o["flip"], o
     assert abs(o["slope"] - 0.67) < 0.05 and abs(o["offset_s"] - 40 / 30) < 0.3, o
@@ -44,3 +55,19 @@ def test_thresholds_are_the_frozen_ones():
     assert geo.decide({**base, "support": 0.2, "a_rows": 14})[0] == "cannot tell"  # too few rows to say different
     assert geo.decide({**base, "motion": 1.4})[0] == "cannot tell"  # still scene
     assert geo.decide({**base, "reg_ok": False})[0] == "cannot tell"
+
+
+@pytest.mark.skipif(not geo.SSCD_PATH.exists(), reason="SSCD model not in data/models")
+def test_an_exported_copy_finds_the_model_it_is_given(tmp_path):
+    """A test runs code exported to its own folder, with the model elsewhere: geo must use the path it is given,
+    not one next to its own file (which in the export does not exist)."""
+    shutil.copytree(Path(geo.__file__).parent, tmp_path / "code" / "src" / "indexreel")
+    (tmp_path / "models").mkdir()
+    model = tmp_path / "models" / "sscd.pt"
+    model.symlink_to(geo.SSCD_PATH)
+    pa, pb = make_pair(tmp_path)
+    code = ("import sys; from indexreel import geo; assert not geo.SSCD_PATH.exists(), geo.SSCD_PATH; "
+            "print(geo.verify(sys.argv[1], sys.argv[2], model=sys.argv[3])['verdict'])")
+    out = subprocess.run([sys.executable, "-c", code, str(pa), str(pb), str(model)], cwd=tmp_path, capture_output=True,
+                         text=True, env={"PYTHONPATH": str(tmp_path / "code" / "src"), "PATH": "/usr/bin:/bin"})
+    assert out.returncode == 0 and out.stdout.strip() == "same", out.stderr[-500:]

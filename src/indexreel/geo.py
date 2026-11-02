@@ -68,18 +68,20 @@ def decode(path, fps):
     return keys, np.array(kt), grey, np.array(gt)
 
 
-_model = None
+_models = {}  # loaded SSCD models by path
 LAST = {}  # the last pair's matrix and residuals, for debugging
 DEC = {}   # decoded clips (4K HEVC takes ~30 s each)
 EMB = {}   # SSCD key-frame embeddings per path within one run (the matcher has them already in the pipeline)
 
 
-def sscd(frames):
+def sscd(frames, model=None):
+    """`model` is the SSCD file the caller was given; the default is the one in this checkout's data/models."""
     import torch
-    global _model
-    if _model is None:
+    path = str(model or SSCD_PATH)
+    if path not in _models:
         torch.set_num_threads(4)
-        _model = torch.jit.load(str(SSCD_PATH)).eval()
+        _models[path] = torch.jit.load(path).eval()
+    net = _models[path]
     mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
     xs = []
@@ -88,7 +90,7 @@ def sscd(frames):
         f = cv2.resize(f, (max(1, round(f.shape[1] * s)), max(1, round(f.shape[0] * s))), interpolation=cv2.INTER_AREA)
         xs.append(torch.from_numpy(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float() / 255)
     with torch.no_grad():
-        out = [torch.nn.functional.normalize(_model((torch.stack(xs[k:k + 32]) - mean) / std), dim=1)
+        out = [torch.nn.functional.normalize(net((torch.stack(xs[k:k + 32]) - mean) / std), dim=1)
                for k in range(0, len(xs), 32)]
     return torch.cat(out).numpy()
 
@@ -269,7 +271,7 @@ def ridge(S, ta, tb):
     return res
 
 
-def verify(path_a, path_b):
+def verify(path_a, path_b, model=None):
     t0 = time.time()
     for p in (path_a, path_b):
         if str(p) not in DEC:
@@ -286,9 +288,9 @@ def verify(path_a, path_b):
     kb, ktb, gb, gtb = DEC[str(path_b)]
     t_dec = time.time() - t0
     if str(path_a) not in EMB:
-        EMB[str(path_a)] = sscd(ka), sscd([np.ascontiguousarray(f[:, ::-1]) for f in ka])
+        EMB[str(path_a)] = sscd(ka, model), sscd([np.ascontiguousarray(f[:, ::-1]) for f in ka], model)
     if str(path_b) not in EMB:
-        EMB[str(path_b)] = sscd(kb), sscd([np.ascontiguousarray(f[:, ::-1]) for f in kb])
+        EMB[str(path_b)] = sscd(kb, model), sscd([np.ascontiguousarray(f[:, ::-1]) for f in kb], model)
     (ea, em), (eb, _) = EMB[str(path_a)], EMB[str(path_b)]
     t_sscd = time.time() - t0 - t_dec
     t1 = time.time()

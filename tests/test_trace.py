@@ -948,3 +948,19 @@ def test_no_rescue_once_enough_copies_are_found(tmp_path):
                 verifier=lambda *a, **k: (0.0, 0.0), geo_check=lambda a, b: checked.append(Path(b).stem) or {"verdict": "same", "reason": "r"})
     YT.pop("two")
     assert sorted(checked) == ["youtube_late", "youtube_old"]  # the two confirmed copies only: x is never rescued
+
+
+def test_geo_gets_the_model_trace_was_given(tmp_path, monkeypatch):
+    """v4's fault: geo looked for the model next to its own file, so in exported code every geo call failed."""
+    seen = []
+    monkeypatch.setattr(trace.geo, "verify", lambda a, b, model=None: seen.append(model) or {"verdict": "same", "reason": "r"})
+    posted = {"https://www.youtube.com/watch?v=old": ("youtube", "old", "2016-01-01")}
+    YT["one"] = list(posted)
+    run = run_dir(tmp_path)
+    s = trace.Searcher(FakeSpark([], queries=("one",)), verify.Cache(tmp_path / "cache"),
+                       search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+    trace.trace(run, s, model="/elsewhere/sscd.pt", dates={"viral": "2021-12-05"}, log=lambda *_: None,
+                judge=object(), matcher=fake_matcher({"youtube_old": "merged"}), fetcher=fake_fetcher(posted),
+                verifier=lambda *a, **k: (0.0, 0.0))
+    YT.pop("one")
+    assert seen == ["/elsewhere/sscd.pt"]

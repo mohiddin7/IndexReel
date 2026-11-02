@@ -989,6 +989,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
     """trace.csv rows for one recording; candidates go to <run>/trace/<recording>/. Verify keeps `reserve` dollars
     back for the recordings still to come."""
     run = Path(run)
+    check = geo_check or (lambda a, b: geo.verify(a, b, model=model))  # the model trace was given, not one next to geo.py
     clip, src, before, own = recording_input(run, rec, clips, dates)
 
     order, hits, leaks = searcher.candidates(str(src), before)  # what the clip shows only; the claims stay on the page
@@ -1085,7 +1086,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             r["possible_source"] = 1 if r["earlier"] == 1 and r["confirmed"] == 0 and possible_source(p) else ""
             found += int(r["confirmed"] == 1 and r["earlier"] == 1)
             if r["confirmed"] == 1 and r["earlier"] == 1:  # at most ENOUGH per recording
-                line = geo_line(geo_copy(r, src, cand, geo_check or geo.verify, log))
+                line = geo_line(geo_copy(r, src, cand, check, log))
                 card = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
                 if line and core_evidence(pdir, p, run / card, model, line=line):
                     r["evidence"] = card
@@ -1094,7 +1095,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             if found >= ENOUGH or not judge:
                 break
             found += rescue(r, src, *pairs[r["clip"]], run, rec, model, judge, cache, verifier, searcher,
-                            max_usd - reserve, geo_check or geo.verify, log)
+                            max_usd - reserve, check, log)
     shown = sorted((r for r in rows if r.get("confirmed") == 1 and r.get("earlier") == 1), key=lambda r: r["posted_at"])
     for r in rows:
         r["shown"] = int(bool(shown) and r is shown[0])
