@@ -1023,3 +1023,28 @@ def test_a_confirmed_copy_whose_card_is_refused_is_only_a_possible_source(tmp_pa
     assert (by["a"]["confirmed"], by["a"]["automatic"], by["a"]["shown"], by["a"]["possible_source"]) == (0, 0, 0, 1)
     assert by["a"]["card_check"] == "flat row 3"
     assert (by["b"]["confirmed"], by["b"]["shown"], by["b"]["card_check"]) == (1, 1, "")
+
+
+def test_text_on_screen_adds_queries_and_a_channel_only_when_asked(tmp_path):
+    asked, searched = [], []
+    class Spark(FakeSpark):
+        def ask(self, clip, text, web):
+            if "text that is visible" in text:
+                asked.append("screen")
+                return {"texts": ["KOMPAS TV"], "handle": "@kompastv", "queries": ["banjir lahar tumpak sewu kompas"]}, [], 0.01, "completed"
+            return super().ask(clip, text, web)
+    def search(q, n, h=None):
+        searched.append((q, h))
+        return []
+    (tmp_path / "v.mp4").write_bytes(b"x")
+    for on in (False, True):
+        asked.clear(); searched.clear()
+        s = trace.Searcher(Spark([], queries=("waterfall mudflow",)), verify.Cache(tmp_path / f"c{on}"), search=search,
+                           log=lambda *_: None, sources=("youtube", "channel"), screen_text=on)
+        s.candidates(str(tmp_path / "v.mp4"))
+        if not on:
+            assert asked == [] and searched == [("waterfall mudflow", None)]
+        else:
+            assert asked == ["screen"]
+            assert ("banjir lahar tumpak sewu kompas", None) in searched  # a query from the text on screen
+            assert ("waterfall mudflow", "@kompastv") in searched  # the channel named on screen, with the usual queries

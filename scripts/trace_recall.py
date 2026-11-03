@@ -1,7 +1,7 @@
 """Retrieval recall of trace's sources on dev cases (eval/trace-v2.md, Dev measurement). Nothing is downloaded.
 
   python scripts/trace_recall.py <cases.csv> --cache <dir> [--sources web,keyframe,channel,ytapi,youtube]
-      [--per-query N] [--by-date] [--no-prerank] [--no-date-filter] [--max-usd 1] [--out results.csv]
+      [--per-query N] [--by-date] [--no-prerank] [--no-date-filter] [--screen-text] [--max-usd 1] [--out results.csv]
 
 cases.csv columns: case, clip (input path), claimed_date, known (space-separated post ids of known earlier uploads of
 the recording). For each case the script runs trace's candidate search with the chosen sources and settings and
@@ -41,6 +41,7 @@ def main(argv=None):
     ap.add_argument("--by-date", action="store_true")
     ap.add_argument("--no-prerank", action="store_true")
     ap.add_argument("--no-date-filter", action="store_true")
+    ap.add_argument("--screen-text", action="store_true", help="add queries from the text on screen")
     ap.add_argument("--max-usd", type=float, default=1.0)
     ap.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
@@ -49,7 +50,8 @@ def main(argv=None):
     cache = verify.Cache(a.cache / "trace")
     s = trace.Searcher(trace.SparkSearch(a.cache / "verify" / "clips"), cache, max_usd=a.max_usd,
                        google=trace.Google(key) if key else None, thumbs=trace.Thumbs(cli.MODEL, cache), meta=trace.post_meta,
-                       sources=a.sources.split(","), prerank=not a.no_prerank, date_filter=not a.no_date_filter)
+                       sources=a.sources.split(","), prerank=not a.no_prerank, date_filter=not a.no_date_filter,
+                       screen_text=a.screen_text)
     rows = []
     for c in csv.DictReader(open(a.cases, newline="")):
         known = c["known"].split()
