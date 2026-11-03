@@ -611,7 +611,8 @@ def test_a_copy_is_automatic_only_when_verify_and_geo_both_say_same(tmp_path):
         checked.append((Path(a).name, k))
         if isinstance(geo_says[k], Exception):
             raise geo_says[k]
-        return {"verdict": geo_says[k], "reason": f"geo said {geo_says[k]}"}
+        return {"verdict": geo_says[k], "reason": f"geo said {geo_says[k]}", "sim_inliers": 60, "ridge_z": 20.0,
+                "line_ncc": 0.4, "support": 0.8, "slope": 1.0, "offset_s": 0.0}  # with the margin automatic asks for
     rows = []
     for pair in ("ab", "cd", "ef"):
         YT["auto"] = [f"https://www.youtube.com/watch?v={k}" for k in pair]
@@ -865,7 +866,7 @@ def test_a_confirmed_copy_gets_its_card_redrawn_from_geos_line(tmp_path, monkeyp
             w.writeheader()
             w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": "merged", "verify_verdict": "same"})
     drawn = []
-    monkeypatch.setattr(trace, "core_evidence", lambda pdir, p, out, model=None, line=None: drawn.append(line) or line is not None)
+    monkeypatch.setattr(trace, "core_evidence", lambda pdir, p, out, model=None, line=None, **k: drawn.append(line) or line is not None)
     lines = {"a": {"verdict": "cannot tell", "reason": "-", "slope": 0.5, "offset_s": 3.0, "ridge_z": 19.8, "line_ncc": 0.3},
              "b": {"verdict": "cannot tell", "reason": "-", "slope": 0.5, "offset_s": 3.0, "ridge_z": 2.0, "line_ncc": 0.3}}
     YT["line"] = ["https://www.youtube.com/watch?v=a", "https://www.youtube.com/watch?v=b"]
@@ -877,14 +878,14 @@ def test_a_confirmed_copy_gets_its_card_redrawn_from_geos_line(tmp_path, monkeyp
                        geo_check=lambda a, b: lines[Path(b).stem[-1]])
     YT.pop("line")
     by = {r["url"][-1]: r for r in rows}
-    assert drawn == [(0.5, 3.0)]  # a redraw for a only: b's ridge is weak
+    assert drawn == [(0.5, 3.0), None]  # on geo's line for a only: b's ridge is weak, so its card is drawn as before
     assert by["a"]["evidence"].endswith("pairs/youtube_a/core.jpg") and by["b"]["evidence"] == ""
 
 
 @pytest.mark.parametrize("card", [True, False])
 def test_a_copy_the_matcher_kept_apart_is_confirmed_only_when_geo_and_verify_both_say_same(tmp_path, monkeypatch, card):
     """...and only with a card drawn on geo's line: the matcher's own card follows its apart alignment."""
-    monkeypatch.setattr(trace, "core_evidence", lambda pdir, p, out, model=None, line=None: card and line == (1.0, -2.0, 3.0, 9.0))
+    monkeypatch.setattr(trace, "core_evidence", lambda pdir, p, out, model=None, line=None, **k: card and line == (1.0, -2.0, 3.0, 9.0))
     # all five apart; e is later than the claim. By aligned score: e, a, b, c, d; RESCUE = 3 earlier ones: a, b, c
     aligned = {"a": "0.20", "b": "0.19", "c": "0.18", "d": "0.17", "e": "0.30"}
     geo_says = {"a": "same", "b": "same", "c": "different", "d": "same", "e": "same"}
@@ -901,7 +902,7 @@ def test_a_copy_the_matcher_kept_apart_is_confirmed_only_when_geo_and_verify_bot
     def geo_check(a, b):
         checked.append(Path(b).stem[-1])
         return {"verdict": geo_says[Path(b).stem[-1]], "reason": "r", "slope": 1.0, "offset_s": -2.0, "ridge_z": 9.0,
-                "line_ncc": 0.3, "a_span_s": (3.0, 9.0)}
+                "line_ncc": 0.3, "a_span_s": (3.0, 9.0), "sim_inliers": 60, "support": 0.8}
     def verifier(out, judge, cache, max_usd, workers):
         with open(out / "pairs.csv", newline="") as f:
             rd = csv.DictReader(f)
@@ -964,3 +965,74 @@ def test_geo_gets_the_model_trace_was_given(tmp_path, monkeypatch):
                 verifier=lambda *a, **k: (0.0, 0.0))
     YT.pop("one")
     assert seen == ["/elsewhere/sscd.pt"]
+
+
+def test_automatic_needs_a_margin_above_geos_same():
+    """v5's n34 copy was geo `same` at slope 1/3, the edge of the searched range, and its card did not show the link."""
+    strong = {"verdict": "same", "reason": "r", "sim_inliers": 60, "ridge_z": 20.0, "line_ncc": 0.4, "support": 0.8,
+              "slope": 1.0}
+    assert trace.with_margin(strong)
+    for k, v in [("slope", 0.333), ("slope", 2.9), ("sim_inliers", 25), ("ridge_z", 8.0), ("line_ncc", 0.2),
+                 ("support", 0.55), ("verdict", "cannot tell"), ("ridge_z", float("nan"))]:
+        assert not trace.with_margin({**strong, k: v}), (k, v)
+    assert not trace.with_margin({"verdict": "error", "reason": "r"})
+    for g, auto in [(strong, 1), ({**strong, "slope": 0.333}, 0)]:
+        r = {"clip": "c", "verify_verdict": "same"}
+        trace.geo_copy(r, "a", "b", lambda a, b: g, lambda *_: None)
+        assert r["geo"] == "same" and r["automatic"] == auto
+
+
+def test_a_card_with_a_flat_row_a_repeated_moment_or_an_edge_speed_is_refused():
+    import numpy as np
+    rng = np.random.default_rng(0)
+    fas, fbs = ([rng.integers(0, 255, (90, 160, 3), dtype=np.uint8) for _ in range(3)] for _ in range(2))
+    ts, tbs = [1.0, 2.0, 3.0], [5.0, 6.0, 7.0]
+    assert trace.card_problems(fas, fbs, ts, tbs) == []
+    assert trace.card_problems(fas, [fbs[0], fbs[1], np.zeros_like(fbs[2])], ts, tbs) == ["flat row 3"]  # a black transition
+    assert trace.card_problems(fas, fbs, [1.0, 1.1, 3.0], tbs) == ["same input moment repeated"]
+    assert trace.card_problems([fas[0], fas[0], fas[2]], fbs, ts, tbs) == ["same input moment repeated"]
+    assert trace.card_problems(fas, fbs, ts, [5.0, 5.333, 5.667]) == ["speed 0.33 at the edge"]
+    assert trace.card_problems(fas, fbs, ts, tbs, slope=2.9) == ["speed 2.90 at the edge"]
+    assert trace.card_problems(fas, fbs, ts, tbs, slope=float("nan")) == ["speed nan at the edge"]
+
+
+def test_a_small_inset_is_cropped_to_geos_box():
+    import numpy as np
+    assert trace.inset_box({"reg_ok": True, "box_b": [0.5, 0.5, 0.8, 0.8]}) == (0.5, 0.5, 0.8, 0.8)  # 9% of the frame
+    assert trace.inset_box({"reg_ok": True, "box_b": [0.0, 0.0, 0.9, 0.9]}) is None  # most of the frame: no crop
+    assert trace.inset_box({"reg_ok": False, "box_b": [0.5, 0.5, 0.8, 0.8]}) is None
+    assert trace.inset_box({"verdict": "error", "reason": "r"}) is None
+    f = np.zeros((200, 400, 3), np.uint8)
+    assert trace.crop_box(f, (0.5, 0.5, 0.8, 0.8)).shape == (80, 160, 3)  # padded by 5% of the frame on each side
+
+
+def test_a_confirmed_copy_whose_card_is_refused_is_only_a_possible_source(tmp_path, monkeypatch):
+    def matcher(folder, out, model):
+        a, b = sorted(p.stem for p in folder.iterdir() if p.suffix == ".mp4")
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "pairs.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=cli.PAIR_COLUMNS, restval="")
+            w.writeheader()
+            w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": "merged", "verify_verdict": "same"})
+    boxes = []
+    def card(pdir, p, out, model=None, line=None, box=None, problems=None):
+        boxes.append(box)
+        if "youtube_a" in str(out):
+            problems.append("flat row 3")
+        return True
+    monkeypatch.setattr(trace, "core_evidence", card)
+    g = {"verdict": "same", "reason": "r", "reg_ok": True, "box_b": [0.1, 0.1, 0.4, 0.4], "sim_inliers": 60,
+         "ridge_z": 20.0, "line_ncc": 0.4, "support": 0.8, "slope": 1.0, "offset_s": 0.0}
+    YT["gate"] = ["https://www.youtube.com/watch?v=a", "https://www.youtube.com/watch?v=b"]
+    run = run_dir(tmp_path)
+    s = trace.Searcher(FakeSpark([], queries=("gate",)), verify.Cache(tmp_path / "cache"),
+                       search=lambda q, n, h=None: YT.get(q, []) if h is None else [], log=lambda *_: None)
+    rows = trace.trace(run, s, model=None, dates={"viral": "2021-12-05"}, log=lambda *_: None, matcher=matcher,
+                       fetcher=fake_fetcher({u: ("youtube", u[-1], "2016-01-0" + str(i + 1)) for i, u in enumerate(YT["gate"])}),
+                       geo_check=lambda a, b: g)
+    YT.pop("gate")
+    by = {r["url"][-1]: r for r in rows}
+    assert (0.1, 0.1, 0.4, 0.4) in boxes  # the candidate is cropped to the inset
+    assert (by["a"]["confirmed"], by["a"]["automatic"], by["a"]["shown"], by["a"]["possible_source"]) == (0, 0, 0, 1)
+    assert by["a"]["card_check"] == "flat row 3"
+    assert (by["b"]["confirmed"], by["b"]["shown"], by["b"]["card_check"]) == (1, 1, "")

@@ -86,7 +86,7 @@ PACE_S = 2  # seconds yt-dlp waits between requests to a platform: YouTube asks 
 COLUMNS = ["recording", "input", "source", "query", "url", "platform", "post_id", "account", "posted_at", "fetch",
            "clip", "duration_s", "cut_start_s", "cut_end_s", "coarse", "band", "verify_verdict", "evidence", "confirmed",
            "earlier", "leak_exposed", "shown", "claimed_date", "leak_copy", "prerank", "families", "strength",
-           "corroborated_date", "corroboration_urls", "date_check", "possible_source", "geo", "geo_detail", "automatic"]
+           "corroborated_date", "corroboration_urls", "date_check", "possible_source", "geo", "geo_detail", "automatic", "card_check"]
 
 QUERY_PROMPT = """You are shown one video. Answer with JSON only, no other text.
 The footage may be older than it seems or from somewhere else, so work only from what the video shows.
@@ -720,12 +720,54 @@ def input_left(src, p, out):
     return cv2.imwrite(str(out), img)
 
 
-def core_evidence(pdir, p, out, model=None, line=None):
+FLAT_STD, SAME_DT, SAME_DIFF, INSET = 12.0, 0.25, 1.5, 0.30  # the card gate, fixed before the v2-v5 replay
+
+
+def card_problems(fas, fbs, ts, tbs, slope=None):
+    """Why a card would not show the link (empty when it would): a flat row (black, white or a faded transition on
+    either side), the same input or candidate moment twice, or a speed at the edge of what geo searches. `slope` is
+    geo's, else the card's own (tB3 - tB1) / (tA3 - tA1)."""
+    import itertools
+    import cv2
+    import numpy as np
+    grey = lambda f: cv2.cvtColor(f, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    out = [f"flat row {i + 1}" for i, (fa, fb) in enumerate(zip(fas, fbs)) if min(grey(fa).std(), grey(fb).std()) < FLAT_STD]
+    for name, tt, ff in (("input", ts, fas), ("candidate", tbs, fbs)):
+        if any(abs(b - a) < SAME_DT for a, b in itertools.combinations(tt, 2)) or any(
+                a.shape == b.shape and np.abs(grey(a) - grey(b)).mean() < SAME_DIFF for a, b in itertools.combinations(ff, 2)):
+            out.append(f"same {name} moment repeated")
+    if slope is None and ts[-1] != ts[0]:
+        slope = (tbs[-1] - tbs[0]) / (ts[-1] - ts[0])
+    if slope is not None and not AUTO_MARGIN["slope"][0] <= slope <= AUTO_MARGIN["slope"][1]:
+        out.append(f"speed {slope:.2f} at the edge")
+    return out
+
+
+def inset_box(g):
+    """geo's box of the input inside the candidate, when geo registered the pair and the box is a small inset."""
+    b = g.get("box_b")
+    if not (g.get("reg_ok") and b):
+        return None
+    x0, y0, x1, y1 = (min(1.0, max(0.0, float(v))) for v in b)
+    return (x0, y0, x1, y1) if 0 < (x1 - x0) * (y1 - y0) < INSET else None
+
+
+def crop_box(f, box, pad=0.05):
+    """The frame cropped to box (fractions of the frame), padded by `pad` of the frame on each side."""
+    h, w = f.shape[:2]
+    x0, y0, x1, y1 = box
+    xa, ya, xb, yb = int(max(0, x0 - pad) * w), int(max(0, y0 - pad) * h), int(min(1, x1 + pad) * w), int(min(1, y1 + pad) * h)
+    return f[ya:yb, xa:xb] if xb - xa > 8 and yb - ya > 8 else f
+
+
+def core_evidence(pdir, p, out, model=None, line=None, box=None, problems=None):
     """Three frame pairs from inside the pair's core span (where the two clips really match), so the image shows the
     link even when the input is cut from a longer video. With geo's measured line (slope, offset: candidate time =
     slope * input time + offset), each input frame is shown beside the candidate frame on that line, so a slowed copy
     shows the same moment; else with an SSCD model, beside the candidate frame in the core span most like it; without
-    one, beside the frame at the matcher's offset. Returns False when the pair has no core span."""
+    one, beside the frame at the matcher's offset. With `box`, the candidate frames are cropped to that inset. When
+    `problems` is a list, card_problems' reasons for this card are added to it. Returns False when the pair has no core
+    span."""
     import cv2
     import numpy as np
     if not p.get("core_a_start_s"):
@@ -747,18 +789,23 @@ def core_evidence(pdir, p, out, model=None, line=None):
     fbs = [frame_at(path[ib], tb) for tb in tbs]
     if any(f is None for f in fbs):
         return False
+    if box is not None:
+        fbs = [crop_box(f, box) for f in fbs]
     flip = mirrored(fas, fbs)  # the matcher's `mirrored` flag comes from SSCD and is not reliable for this
     if flip:
         fas = [f[:, ::-1].copy() for f in fas]
-    rows = []
+    rows, shown = [], []
     for t, tb, fa, fb in zip(ts, tbs, fas, fbs):
         fa, fb, crop = matched_view(trim_bars(fa), trim_bars(fb))  # the live picture only, then the same view
+        shown.append((fa, fb))
         left, right = cli.thumb(fa), cli.thumb(fb)
         labels = ((left, f"input {t:.1f}s" + (" mirrored" if flip else "") + (" cropped" if crop == "input" else "")),
-                  (right, f"candidate {tb:.1f}s" + (" cropped" if crop == "candidate" else "")))
+                  (right, f"candidate {tb:.1f}s" + (" cropped" if crop == "candidate" or box is not None else "")))
         for img, text in labels:  # no video id: a blind reviewer could look it up
             cv2.putText(img, text, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
+    if problems is not None:
+        problems += card_problems([a for a, _ in shown], [b for _, b in shown], ts, tbs, line[0] if line else None)
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 75])
     return True
@@ -1086,10 +1133,15 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             r["possible_source"] = 1 if r["earlier"] == 1 and r["confirmed"] == 0 and possible_source(p) else ""
             found += int(r["confirmed"] == 1 and r["earlier"] == 1)
             if r["confirmed"] == 1 and r["earlier"] == 1:  # at most ENOUGH per recording
-                line = geo_line(geo_copy(r, src, cand, check, log))
-                card = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
-                if line and core_evidence(pdir, p, run / card, model, line=line):
+                g = geo_copy(r, src, cand, check, log)
+                card, problems = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg", []
+                if core_evidence(pdir, p, run / card, model, line=geo_line(g), box=inset_box(g), problems=problems):
                     r["evidence"] = card
+                r["card_check"] = "; ".join(problems)
+                if problems:  # the card would not show the link, so the copy is not stated
+                    log(f"trace: {r['clip']} card refused ({r['card_check']}), so it is only a possible source")
+                    r.update({"confirmed": 0, "automatic": 0, "possible_source": 1})
+                    found -= 1
         apart = [r for r in fetched if r.get("band") == "apart" and r.get("earlier") == 1 and r["clip"] in pairs]
         for r in sorted(apart, key=lambda r: -float(pairs[r["clip"]][3].get("aligned") or 0))[:RESCUE]:
             if found >= ENOUGH or not judge:
@@ -1108,15 +1160,29 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
 
 
 
+AUTO_MARGIN = dict(sim_inliers=30, ridge_z=9.0, line_ncc=0.225, support=0.6, slope=(0.4, 2.5))  # fixed before the v2-v5 replay
+
+
+def with_margin(g):
+    """Geo said same with room to spare: 1.5x its inlier, ridge and correlation thresholds, support 0.6, and a speed
+    away from the ends of the searched range (v5's n34 copy was `same` at slope 1/3 and its card did not show the link).
+    Written so a missing value or a NaN fails."""
+    m = AUTO_MARGIN
+    return (g.get("verdict") == "same" and g.get("sim_inliers", 0) >= m["sim_inliers"] and g.get("ridge_z", 0) >= m["ridge_z"]
+            and g.get("line_ncc", 0) >= m["line_ncc"] and g.get("support", 0) >= m["support"]
+            and m["slope"][0] <= g.get("slope", 0) <= m["slope"][1])
+
+
 def geo_copy(r, src, cand, check, log):
     """The automatic gate: a confirmed copy is automatic only when verify said same AND the geometric check says
-    same. Anything else (different, cannot tell, an error, no verify answer) stays a copy to check by eye."""
+    same with a margin (with_margin). Anything else (a bare same, different, cannot tell, an error, no verify answer)
+    stays a copy to check by eye."""
     try:
         g = check(src, cand)
     except Exception as e:
         g = {"verdict": "error", "reason": f"{type(e).__name__}: {str(e)[:150]}"}
     r["geo"], r["geo_detail"] = g["verdict"], g["reason"]
-    r["automatic"] = int(r.get("verify_verdict") == "same" and g["verdict"] == "same")
+    r["automatic"] = int(r.get("verify_verdict") == "same" and with_margin(g))
     log(f"trace: {r['clip']} geo {g['verdict']}: {g['reason']}")
     return g
 
@@ -1149,12 +1215,16 @@ def rescue(r, src, cand, pdir, out, p, run, rec, model, judge, cache, verifier, 
     if p.get("verify_verdict") != "same":
         return 0
     card = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
-    line = geo_line(g)
-    if not (line and core_evidence(pdir, p, run / card, model, line=line)):  # the matcher's own card is from its apart alignment
-        log(f"trace: {r['clip']} rescue has no card on geo's line, so it is not confirmed")
+    line, problems = geo_line(g), []
+    if not (line and core_evidence(pdir, p, run / card, model, line=line, box=inset_box(g), problems=problems)):
+        log(f"trace: {r['clip']} rescue has no card on geo's line, so it is not confirmed")  # the matcher's is from its apart alignment
+        return 0
+    if problems:
+        log(f"trace: {r['clip']} rescue card refused ({'; '.join(problems)}), so it is not confirmed")
         return 0
     r.update({"band": "merged", "verify_verdict": "same", "confirmed": 1, "possible_source": "", "geo": g["verdict"],
-              "geo_detail": "found by geo after the matcher kept it apart: " + g["reason"], "automatic": 1, "evidence": card})
+              "geo_detail": "found by geo after the matcher kept it apart: " + g["reason"], "automatic": int(with_margin(g)),
+              "evidence": card})
     return 1
 
 
