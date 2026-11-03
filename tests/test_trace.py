@@ -996,16 +996,6 @@ def test_a_card_with_a_flat_row_a_repeated_moment_or_an_edge_speed_is_refused():
     assert trace.card_problems(fas, fbs, ts, tbs, slope=float("nan")) == ["speed nan at the edge"]
 
 
-def test_a_small_inset_is_cropped_to_geos_box():
-    import numpy as np
-    assert trace.inset_box({"reg_ok": True, "box_b": [0.5, 0.5, 0.8, 0.8]}) == (0.5, 0.5, 0.8, 0.8)  # 9% of the frame
-    assert trace.inset_box({"reg_ok": True, "box_b": [0.0, 0.0, 0.9, 0.9]}) is None  # most of the frame: no crop
-    assert trace.inset_box({"reg_ok": False, "box_b": [0.5, 0.5, 0.8, 0.8]}) is None
-    assert trace.inset_box({"verdict": "error", "reason": "r"}) is None
-    f = np.zeros((200, 400, 3), np.uint8)
-    assert trace.crop_box(f, (0.5, 0.5, 0.8, 0.8)).shape == (80, 160, 3)  # padded by 5% of the frame on each side
-
-
 def test_a_confirmed_copy_whose_card_is_refused_is_only_a_possible_source(tmp_path, monkeypatch):
     def matcher(folder, out, model):
         a, b = sorted(p.stem for p in folder.iterdir() if p.suffix == ".mp4")
@@ -1014,14 +1004,12 @@ def test_a_confirmed_copy_whose_card_is_refused_is_only_a_possible_source(tmp_pa
             w = csv.DictWriter(f, fieldnames=cli.PAIR_COLUMNS, restval="")
             w.writeheader()
             w.writerow({"pair_id": cluster.pair_id(a, b), "a": a, "b": b, "band": "merged", "verify_verdict": "same"})
-    boxes = []
-    def card(pdir, p, out, model=None, line=None, box=None, problems=None):
-        boxes.append(box)
+    def card(pdir, p, out, model=None, line=None, problems=None):
         if "youtube_a" in str(out):
             problems.append("flat row 3")
         return True
     monkeypatch.setattr(trace, "core_evidence", card)
-    g = {"verdict": "same", "reason": "r", "reg_ok": True, "box_b": [0.1, 0.1, 0.4, 0.4], "sim_inliers": 60,
+    g = {"verdict": "same", "reason": "r", "sim_inliers": 60,
          "ridge_z": 20.0, "line_ncc": 0.4, "support": 0.8, "slope": 1.0, "offset_s": 0.0}
     YT["gate"] = ["https://www.youtube.com/watch?v=a", "https://www.youtube.com/watch?v=b"]
     run = run_dir(tmp_path)
@@ -1032,7 +1020,6 @@ def test_a_confirmed_copy_whose_card_is_refused_is_only_a_possible_source(tmp_pa
                        geo_check=lambda a, b: g)
     YT.pop("gate")
     by = {r["url"][-1]: r for r in rows}
-    assert (0.1, 0.1, 0.4, 0.4) in boxes  # the candidate is cropped to the inset
     assert (by["a"]["confirmed"], by["a"]["automatic"], by["a"]["shown"], by["a"]["possible_source"]) == (0, 0, 0, 1)
     assert by["a"]["card_check"] == "flat row 3"
     assert (by["b"]["confirmed"], by["b"]["shown"], by["b"]["card_check"]) == (1, 1, "")

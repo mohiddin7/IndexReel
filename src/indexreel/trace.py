@@ -720,7 +720,7 @@ def input_left(src, p, out):
     return cv2.imwrite(str(out), img)
 
 
-FLAT_STD, SAME_DT, SAME_DIFF, INSET = 12.0, 0.25, 1.5, 0.30  # the card gate, fixed before the v2-v5 replay
+FLAT_STD, SAME_DT, SAME_DIFF = 12.0, 0.25, 1.5  # the card gate, fixed before the v2-v5 replay
 
 
 def card_problems(fas, fbs, ts, tbs, slope=None):
@@ -743,31 +743,13 @@ def card_problems(fas, fbs, ts, tbs, slope=None):
     return out
 
 
-def inset_box(g):
-    """geo's box of the input inside the candidate, when geo registered the pair and the box is a small inset."""
-    b = g.get("box_b")
-    if not (g.get("reg_ok") and b):
-        return None
-    x0, y0, x1, y1 = (min(1.0, max(0.0, float(v))) for v in b)
-    return (x0, y0, x1, y1) if 0 < (x1 - x0) * (y1 - y0) < INSET else None
-
-
-def crop_box(f, box, pad=0.05):
-    """The frame cropped to box (fractions of the frame), padded by `pad` of the frame on each side."""
-    h, w = f.shape[:2]
-    x0, y0, x1, y1 = box
-    xa, ya, xb, yb = int(max(0, x0 - pad) * w), int(max(0, y0 - pad) * h), int(min(1, x1 + pad) * w), int(min(1, y1 + pad) * h)
-    return f[ya:yb, xa:xb] if xb - xa > 8 and yb - ya > 8 else f
-
-
-def core_evidence(pdir, p, out, model=None, line=None, box=None, problems=None):
+def core_evidence(pdir, p, out, model=None, line=None, problems=None):
     """Three frame pairs from inside the pair's core span (where the two clips really match), so the image shows the
     link even when the input is cut from a longer video. With geo's measured line (slope, offset: candidate time =
     slope * input time + offset), each input frame is shown beside the candidate frame on that line, so a slowed copy
     shows the same moment; else with an SSCD model, beside the candidate frame in the core span most like it; without
-    one, beside the frame at the matcher's offset. With `box`, the candidate frames are cropped to that inset. When
-    `problems` is a list, card_problems' reasons for this card are added to it. Returns False when the pair has no core
-    span."""
+    one, beside the frame at the matcher's offset. When `problems` is a list, card_problems' reasons for this card are
+    added to it. Returns False when the pair has no core span."""
     import cv2
     import numpy as np
     if not p.get("core_a_start_s"):
@@ -789,8 +771,6 @@ def core_evidence(pdir, p, out, model=None, line=None, box=None, problems=None):
     fbs = [frame_at(path[ib], tb) for tb in tbs]
     if any(f is None for f in fbs):
         return False
-    if box is not None:
-        fbs = [crop_box(f, box) for f in fbs]
     flip = mirrored(fas, fbs)  # the matcher's `mirrored` flag comes from SSCD and is not reliable for this
     if flip:
         fas = [f[:, ::-1].copy() for f in fas]
@@ -800,7 +780,7 @@ def core_evidence(pdir, p, out, model=None, line=None, box=None, problems=None):
         shown.append((fa, fb))
         left, right = cli.thumb(fa), cli.thumb(fb)
         labels = ((left, f"input {t:.1f}s" + (" mirrored" if flip else "") + (" cropped" if crop == "input" else "")),
-                  (right, f"candidate {tb:.1f}s" + (" cropped" if crop == "candidate" or box is not None else "")))
+                  (right, f"candidate {tb:.1f}s" + (" cropped" if crop == "candidate" else "")))
         for img, text in labels:  # no video id: a blind reviewer could look it up
             cv2.putText(img, text, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         rows.append(np.hstack([left, right]))
@@ -1135,7 +1115,7 @@ def trace_recording(run, rec, clips, searcher, dates, model, max_usd, judge=None
             if r["confirmed"] == 1 and r["earlier"] == 1:  # at most ENOUGH per recording
                 g = geo_copy(r, src, cand, check, log)
                 card, problems = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg", []
-                if core_evidence(pdir, p, run / card, model, line=geo_line(g), box=inset_box(g), problems=problems):
+                if core_evidence(pdir, p, run / card, model, line=geo_line(g), problems=problems):
                     r["evidence"] = card
                 r["card_check"] = "; ".join(problems)
                 if problems:  # the card would not show the link, so the copy is not stated
@@ -1216,7 +1196,7 @@ def rescue(r, src, cand, pdir, out, p, run, rec, model, judge, cache, verifier, 
         return 0
     card = f"trace/{rec['id']}/pairs/{r['clip']}/core.jpg"
     line, problems = geo_line(g), []
-    if not (line and core_evidence(pdir, p, run / card, model, line=line, box=inset_box(g), problems=problems)):
+    if not (line and core_evidence(pdir, p, run / card, model, line=line, problems=problems)):
         log(f"trace: {r['clip']} rescue has no card on geo's line, so it is not confirmed")  # the matcher's is from its apart alignment
         return 0
     if problems:
