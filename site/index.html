@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IndexReel</title>
+<meta name="description" content="Tag @askIndexReel under a video post on X. It looks for earlier uploads of the same footage and replies with the date and the frames side by side.">
+<link rel="icon" href="img/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="img/favicon-180.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="IndexReel: is this video really new?">
+<meta property="og:description" content="Tag @askIndexReel under a video post on X. It looks for earlier uploads of the same footage and replies with the date and the frames side by side.">
+<meta property="og:image" content="https://mohiddin7.github.io/indexreel/img/og.png">
+<meta property="og:url" content="https://mohiddin7.github.io/indexreel/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/newsreader-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/plex-latin.woff2" as="font" type="font/woff2" crossorigin>
+<script>
+document.documentElement.classList.add('js');
+if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="loader" aria-hidden="true">
+  <svg viewBox="0 0 24 24"><mask id="m0"><rect width="24" height="24" fill="#fff"/><g fill="#000"><circle cx="14.4" cy="12" r="1.1"/><circle cx="14.4" cy="7.9" r="1.4"/><circle cx="18.3" cy="10.73" r="1.4"/><circle cx="16.81" cy="15.32" r="1.4"/><circle cx="11.99" cy="15.32" r="1.4"/><circle cx="10.5" cy="10.73" r="1.4"/></g></mask><g fill="currentColor"><rect x="2.6" y="4.4" width="2.8" height="15.2" rx="1.4"/><g class="reel ld-reel"><circle cx="14.4" cy="12" r="7.6" mask="url(#m0)"/></g></g></svg>
+  <div class="word"><span>IndexReel</span></div>
+</div>
+
+<header class="top">
+  <a class="brand" href="#top" aria-label="IndexReel, back to top">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><mask id="m1"><rect width="24" height="24" fill="#fff"/><g fill="#000"><circle cx="14.4" cy="12" r="1.1"/><circle cx="14.4" cy="7.9" r="1.4"/><circle cx="18.3" cy="10.73" r="1.4"/><circle cx="16.81" cy="15.32" r="1.4"/><circle cx="11.99" cy="15.32" r="1.4"/><circle cx="10.5" cy="10.73" r="1.4"/></g></mask><g fill="currentColor"><rect x="2.6" y="4.4" width="2.8" height="15.2" rx="1.4"/><g class="reel hd-reel"><circle cx="14.4" cy="12" r="7.6" mask="url(#m1)"/></g></g></svg>
+    IndexReel
+  </a>
+  <nav><a class="hide-s" href="#how">How it works</a><a class="hide-s" href="#meta">Built with Meta</a><a href="replies.html">Replies</a><a href="https://github.com/mohiddin7/indexreel">GitHub</a></nav>
+</header>
+
+<main id="top">
+<section class="hero">
+  <h1><span class="sr">Is this video really new?</span><span class="hook" aria-hidden="true">
+    <span class="q"><span class="ln"><span>Wait, is this</span></span><span class="ln"><span>from today?</span></span></span>
+    <span class="q"><span class="ln"><span>When was</span></span><span class="ln"><span>this filmed?</span></span></span>
+    <span class="q"><span class="ln"><span>Haven't I seen</span></span><span class="ln"><span>this before?</span></span></span>
+    <span class="q"><span class="ln"><span>Source?</span></span></span>
+    <span class="q final"><span class="ln"><span>Is this video</span></span><span class="ln"><span>really new?</span></span></span>
+  </span></h1>
+  <div class="hero-sub reveal"><p>An X bot that finds earlier uploads of a video and shows the frames side by side.</p><p class="tags"><span class="tag">SSCD</span><span class="tag">Muse Spark</span><span class="tag">Open source</span></p><a href="replies.html">Every reply it has posted</a></div>
+  <div class="hero-foot">
+    <p class="lede reveal">Tag @askIndexReel under a video post on X. It looks for earlier uploads of the same footage, and when it finds one, it replies with the date and the frames side by side.</p>
+    <div class="cta reveal">
+      <a class="btn solid" href="https://x.com/askIndexReel">Tag @askIndexReel on X</a>
+      <a class="btn" href="https://github.com/mohiddin7/indexreel">Source on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<section class="rewind ink" id="example" aria-label="A real post">
+  <div class="rw">
+    <div class="rw-text">
+      <div class="rw-head"><h2>A real post</h2><div class="date" aria-hidden="true"><span class="dwrap"><span>2026-10-09</span><span>2017-09-19</span></span></div><div class="rule" aria-hidden="true"><i id="rule"></i></div></div>
+      <div class="caps">
+        <p class="cap1">On Oct 9, 2026, a post on X shared four videos of what it said was an 8.0 earthquake in Panama. On Nov 3 I tagged @askIndexReel under it.</p>
+        <p class="cap2">It checked the videos in order. The third matched an earlier upload: La Nación's YouTube upload from the Sep 19, 2017 earthquake in Mexico.</p>
+      </div>
+    </div>
+    <div class="rw-shots">
+      <figure class="shot shot-a">
+        <img src="img/post.png" width="1100" height="1242" alt="The post on X, dated Oct 9, 2026, with four videos. Its caption, in Spanish, says an 8.0 earthquake hit Panama. Below it, my reply: @askIndexReel is this video new?">
+        <div class="tr-wrap"><div class="tr" lang="en">
+          <small>Translated from Spanish</small>
+          <p>8.0 earthquake occurred in <span class="h">#Panama</span>, the United States Geological Survey reported.</p>
+          <p>The epicenter, at a depth of 30 kilometers.</p>
+          <p><span class="h">#Sismo #temblor</span> (earthquake, tremor)</p>
+          <p>I warned you <span class="h">#Haarp</span> active</p>
+        </div></div>
+      </figure>
+      <figure class="shot shot-b">
+        <img src="img/reply.png" width="1100" height="1368" alt="IndexReel's reply: Video 3 of 4. Earliest matching upload I could confirm: posted 2017-09-19 on YouTube, before this post's date (2026-10-09). Frames side by side attached. Same footage, earlier date; what it shows is for you to judge. Below it, frames from the post's video and the YouTube video at 3.4, 8.1 and 12.9 seconds.">
+      </figure>
+    </div>
+    <div class="rw-cta"><a class="btn solid" href="https://x.com/askIndexReel/status/2117793461453603248">See the reply on X</a></div>
+    <div class="rw-foot"><div class="seg" role="group" aria-label="Caption language"><button type="button" aria-pressed="true" data-l="en">English</button><button type="button" aria-pressed="false" data-l="es">Spanish</button></div><span>The poster's name and photo are blurred.</span></div>
+  </div>
+</section>
+
+<section id="how" aria-labelledby="how-h">
+  <div class="head">
+    <h2 id="how-h">How it works</h2>
+    <p class="muted">Every picture below comes from one test pair: a USGS video of the 2018 Kīlauea eruption, and a cropped, mirrored copy made to test the matcher.</p>
+  </div>
+  <div class="how-grid">
+    <ol class="steps">
+      <li class="step" data-i="0"><h3>Search from the footage</h3><p>Muse Spark looks at the clip and writes searches from what it shows. On X, a place named in the caption can add two more, but it never decides a match. The searches run on YouTube through yt-dlp and on the web, and up to 10 candidates per recording are fetched at low resolution.</p><p class="tags"><span class="tag">Muse Spark</span><span class="tag">yt-dlp</span></p></li>
+      <li class="step" data-i="1"><h3>Turn frames into vectors</h3><p>One frame per second, and its mirror image, goes through Meta's SSCD copy-detection model (<code>sscd_disc_mixup</code>). Each frame becomes a 512-number embedding, compared by cosine similarity.</p><p class="tags"><span class="tag">SSCD</span><span class="tag">1 fps</span><span class="tag">512-d</span></p></li>
+      <li class="step" data-i="2"><h3>Find the straight line</h3><p>Every frame of one clip is compared with every frame of the other. A copy shows up as one straight line in the grid, the idea behind Meta's Video Similarity Challenge. The aligned score is the highest mean along one constant time offset: merged at 0.55 or above, apart below 0.20, unresolved in between.</p><p class="tags"><span class="tag">VSC 2022</span><span class="tag">aligned score</span></p></li>
+      <li class="step" data-i="3"><h3>Check it twice</h3><p>Muse Spark sees the pair at 180 px with minimal reasoning, and a link is re-asked at 360 px in both orders before it is shown as shared footage. A geometric check then lines up local features across mirror, crop and scale, and the moving detail has to follow one straight line in time.</p><p class="tags"><span class="tag">Muse Spark</span><span class="tag">geometric check</span></p></li>
+      <li class="step" data-i="4"><h3>Put the frames side by side</h3><p>The reply gives the earliest upload it could confirm, its date and link, and frames from both videos at the same moments, taken from inside the matching stretch. What they show is for you to judge.</p><p class="tags"><span class="tag">evidence image</span></p></li>
+    </ol>
+    <div class="stage">
+      <div class="stage-top" aria-hidden="true"><span>How it works</span><span class="count" id="count">01 / 05</span></div>
+      <div class="prog" aria-hidden="true"><i id="prog"></i></div>
+      <div class="box">
+        <div class="viz on" data-v="0">
+          <div class="lbl"><span>The edited copy, one frame a second</span></div>
+          <div class="strip"><img src="img/f/c0.jpg" alt=""><img src="img/f/c1.jpg" alt=""><img src="img/f/c2.jpg" alt=""><img src="img/f/c3.jpg" alt=""><img src="img/f/c4.jpg" alt=""><img src="img/f/c5.jpg" alt=""></div>
+          <div class="ticks"><span>2 s</span><span>3 s</span><span>4 s</span><span>5 s</span><span>6 s</span><span>7 s</span></div>
+          <div class="lbl" style="margin-top:18px"><span>The USGS original</span></div>
+          <div class="strip"><img src="img/f/o0.jpg" alt=""><img src="img/f/o1.jpg" alt=""><img src="img/f/o2.jpg" alt=""><img src="img/f/o3.jpg" alt=""><img src="img/f/o4.jpg" alt=""><img src="img/f/o5.jpg" alt=""></div>
+          <div class="ticks"><span>2 s</span><span>3 s</span><span>4 s</span><span>5 s</span><span>6 s</span><span>7 s</span></div>
+        </div>
+        <div class="viz" data-v="1">
+          <div class="lbl"><span>Frame and its mirror</span><span>SSCD embedding, first 64 of 512 values</span></div>
+          <div class="emb" id="emb"></div>
+        </div>
+        <div class="viz" data-v="2">
+          <div class="gridwrap">
+            <div class="ylab">The edited copy, 0 to 17 s</div>
+            <div class="sim" id="sim" role="img" aria-label="An 18 by 18 grid of SSCD cosine similarities between the edited copy and the USGS original. On the diagonal, where the same seconds line up, values run from 0.74 to 0.83; off it, from 0.35 to 0.82."></div>
+            <div class="xlab">The USGS original, 0 to 17 s</div>
+          </div>
+          <p class="legend">This pair:<b>0.79</b>aligned score at offset 0 s, over all 18 seconds. Merged starts at 0.55.</p>
+        </div>
+        <div class="viz" data-v="3">
+          <div class="check"><img src="img/f/c3.jpg" alt=""><img src="img/f/o3.jpg" alt=""></div>
+          <ul class="qs">
+            <li><span>Muse Spark: same recording?</span><span>180 px</span></li>
+            <li><span>Re-asked before it is shown, in both orders</span><span>360 px</span></li>
+            <li><span>Geometric check: mirror, crop, scale</span><span>local features</span></li>
+            <li><span>Moving detail along one straight line in time</span><span>speed and offset</span></li>
+          </ul>
+        </div>
+        <div class="viz" data-v="4">
+          <div class="ev">
+            <div class="row hd"><span></span><span>The edited copy</span><span>The USGS original</span></div>
+            <div class="row"><span>3 s</span><img src="img/f/ec3.jpg" alt="Frame at 3 seconds in the copy"><img src="img/f/eo3.jpg" alt="Frame at 3 seconds in the original"></div>
+            <div class="row"><span>8 s</span><img src="img/f/ec8.jpg" alt="Frame at 8 seconds in the copy"><img src="img/f/eo8.jpg" alt="Frame at 8 seconds in the original"></div>
+            <div class="row"><span>13 s</span><img src="img/f/ec13.jpg" alt="Frame at 13 seconds in the copy"><img src="img/f/eo13.jpg" alt="Frame at 13 seconds in the original"></div>
+          </div>
+        </div>
+      </div>
+      <p class="credit">Kīlauea footage: USGS, public domain.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="run-h">
+  <div class="head">
+    <h2 id="run-h">Run it yourself</h2>
+    <p class="muted">The real output of the open-source matcher on the same pair, run on a laptop CPU at no cost.</p>
+  </div>
+  <div class="run">
+    <div class="term" role="region" aria-label="Terminal output"><pre id="term"><span class="p">$</span> <span class="c">indexreel match clips/ --out run/</span>
+copy_cropped_mirrored: 18 frames, localiser fallback 100%
+usgs_original: 18 frames, localiser fallback 100%
+
+pair                                score aligned offset    span in a    span in b  band
+copy_cropped_mirrored~usgs_original  0.804   0.790     0s     0-  18 s     0-  18 s  merged
+
+1 pairs: 1 merged, 0 unresolved, 0 apart
+1 recordings: r1[2]</pre></div>
+    <div class="run-side">
+      <p>Then <code>indexreel verify</code> asks Muse Spark about uncertain and merged pairs, <code>indexreel trace</code> searches for earlier uploads, and <code>indexreel wall</code> opens a local page where you approve or split each match. The first two call paid APIs and take a spending cap.</p>
+      <p><a href="https://github.com/mohiddin7/indexreel#quickstart">Quickstart on GitHub</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="say ink" aria-label="What it won't tell you">
+  <p class="big" id="big">It doesn't rule on the post. It shows you where the same footage appeared before, and when.</p>
+  <div class="sub"><p class="muted">An earlier upload doesn't settle what a post claims, and finding none doesn't mean the video is new: the search misses many originals. The frames are there so you can judge the match yourself.</p></div>
+</section>
+
+<section id="meta" aria-labelledby="meta-h">
+  <div class="head">
+    <h2 id="meta-h">Built with Meta</h2>
+    <p class="muted">What each Meta model or tool does in IndexReel, and how it did in my tests.</p>
+  </div>
+  <h3 class="grp">In the product</h3>
+  <ul class="models">
+    <li><h3>SSCD<small>sscd_disc_mixup, Meta AI's copy-detection model</small></h3><p class="does">Turns every frame, and its mirror image, into a vector. All matching is built on it. The time check takes its idea from Meta's Video Similarity Challenge (VSC 2022): a copy shows up as one straight line in a frame-by-frame similarity grid.</p><p class="did">Ranked the true original first on 96/96 real phone re-films; 0/1,080 wrong joins in held-out run 2. It also scores two takes of the same view as copies, so nothing is decided on it alone.</p></li>
+    <li><h3>Muse Spark</h3><p class="does">Checks uncertain and merged pairs; writes the searches for earlier uploads from the frames; suggests caption claims; on X, reads what a person asks and declines political topics.</p><p class="did">Same footage in both orders on 14/14 edited copies, 0/42 non-copies called same. One cheap call took two takes of one view for one recording.</p></li>
+    <li><h3>Muse Voice Transcribe</h3><p class="does">On X, when a caption names no place, a place said in the video can add searches.</p><p class="did">Of 41 test clips, one had speech naming a place its caption lacked.</p></li>
+  </ul>
+  <h3 class="grp">In my tests</h3>
+  <ul class="models">
+    <li><h3>Muse Spark Open<small>open weights</small></h3><p class="does">The same check run on my own GPU, to see whether open weights hold up.</p><p class="did">Its own original called same on 91/96 re-films; 0 false "same" in 1,440 other pairs.</p></li>
+  </ul>
+  <h3 class="grp">Tested, not used</h3>
+  <ul class="models">
+    <li><h3>PDQ<small>Meta's perceptual image hash</small></h3><p class="does">A comparison only.</p><p class="did">Ranked the true original first on 67/96 re-films, against SSCD's 96/96.</p></li>
+    <li><h3>SAM 3.1</h3><p class="does">Tested as the screen finder. Not used.</p><p class="did">Lost the first test 1/4 to OpenCV's 4/4 on simulated re-films. A later check found most of that came from my prompt word ("screen" found 3 of 8 screens, "television screen" 6 of 8) and from scoring with PDQ; with both fixed it reached 3/4, still behind OpenCV.</p></li>
+    <li><h3>Muse Wonder</h3><p class="does">Tried as the judge for the hardest pairs. Not used.</p><p class="did">Found 10 of 12 hard true copies against Spark's 9, but called 2 of 12 pairs of different takes the same recording, at about five times the cost.</p></li>
+  </ul>
+  <p class="fine">The 96 re-films are 96 clips of 16 recordings, filmed with one phone in one room, and the SSCD and PDQ rows measure ranking, not grouping accuracy.</p>
+</section>
+
+<section id="trust" aria-labelledby="trust-h">
+  <div class="head">
+    <h2 id="trust-h">How far to trust it</h2>
+    <p class="muted">I wrote down every test, with its pass bar, and committed it before it ran. Failed tests are reported as failed. Copies are simulated or filmed by me unless a row says otherwise; intervals are Wilson 95%.</p>
+  </div>
+  <h3 class="grp">Matching clips</h3>
+  <div class="results">
+    <article class="res"><p class="v">PASS</p><h3>Held-out run 2, fresh clips, fixed pipeline</h3><p>48/48 positives joined (0.93 to 1.00); 0/1,080 negatives joined (0 to 0.0035); 16 of 16 recordings found; verify cost $0.17.</p><p class="n">48 + 1,080 pairs, 16 recordings</p></article>
+    <article class="res"><p class="v">PASS</p><h3>Real phone re-films sent through WhatsApp</h3><p>0/1,080 negatives joined (upper bound 0.35%); own original found for 27/32 re-films (0.68 to 0.93; bar 75%): landscape 16/16, portrait 11/16. All 5 misses are portrait, where the verifier called a true pair different or abstained.</p><p class="n">32 re-films of 16 originals, handheld, no bezel</p></article>
+  </div>
+  <h3 class="grp">Finding the earlier upload</h3>
+  <div class="results">
+    <article class="res"><p class="v">FAIL</p><h3>Earlier copies, v5</h3><p>2 wrong statements: of 12 earlier copies trace confirmed, the blind reviewer could not tell 2 were the same recording from the evidence image (each a small inset in a news video or graphic; neither was the copy shown; none judged different). Found 0 of 1 real re-upload and 1 of 9 of my copies (needs 4). Nothing on any control.</p><p class="n">10 cases, 4 controls</p></article>
+    <article class="res miss"><p class="v">WHEN IT FINDS NOTHING</p><h3>The reply says so</h3><blockquote>I found no upload of this video before this post's date (<i>date</i>) among <i>n</i> I checked. That doesn't mean none exists.</blockquote><p class="n">The bot's reply text, from src/indexreel/bot.py</p></article>
+  </div>
+  <p class="after"><a href="https://github.com/mohiddin7/indexreel#results">All results, including every failed test</a></p>
+</section>
+
+<section class="close ink" aria-label="Try it">
+  <div class="ask">
+    <p>Seen a video that looks new? Tag @askIndexReel under the post.</p>
+    <div class="cta"><a class="btn solid" href="https://x.com/askIndexReel">Tag @askIndexReel on X</a><a class="btn" href="https://github.com/mohiddin7/indexreel">Source on GitHub</a></div>
+  </div>
+  <div class="wordmark" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><mask id="m2"><rect width="24" height="24" fill="#fff"/><g fill="#000"><circle cx="14.4" cy="12" r="1.1"/><circle cx="14.4" cy="7.9" r="1.4"/><circle cx="18.3" cy="10.73" r="1.4"/><circle cx="16.81" cy="15.32" r="1.4"/><circle cx="11.99" cy="15.32" r="1.4"/><circle cx="10.5" cy="10.73" r="1.4"/></g></mask><g fill="currentColor"><rect x="2.6" y="4.4" width="2.8" height="15.2" rx="1.4"/><g class="reel ft-reel"><circle cx="14.4" cy="12" r="7.6" mask="url(#m2)"/></g></g></svg>
+    <span>IndexReel</span>
+  </div>
+  <div class="foot">
+    <p class="muted">Built by Mohiddin for the Meta Global AI Developer Hackathon 2026, Indie track. Code under Apache 2.0. Kīlauea footage: USGS, public domain.</p>
+    <p class="links"><a href="https://github.com/mohiddin7/indexreel">GitHub</a><a href="https://x.com/askIndexReel">@askIndexReel on X</a></p>
+  </div>
+</section>
+</main>
+
+<script src="data.js"></script>
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<script src="vendor/lenis.min.js"></script>
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const motion = document.documentElement.classList.contains('motion') && window.gsap && window.ScrollTrigger && window.Lenis;
+  if (!motion) { $('.loader')?.remove(); document.documentElement.classList.remove('motion'); }
+
+  // Caption language: English (translated) or the original Spanish.
+  const shotA = $('.shot-a'), seg = $$('.seg button');
+  seg.forEach(b => b.addEventListener('click', () => {
+    shotA.classList.toggle('orig', b.dataset.l === 'es');
+    seg.forEach(x => x.setAttribute('aria-pressed', x === b));
+  }));
+
+  // The header card turns dark over black sections.
+  const top = $('.top'), inks = $$('.ink');
+  const tone = () => top.classList.toggle('dark', inks.some(el => { const r = el.getBoundingClientRect(); return r.top <= 36 && r.bottom >= 36; }));
+  addEventListener('scroll', tone, { passive: true }); tone();
+
+  // The reel turns in place, like a wheel coming to rest.
+  const spin = (el, ms = 1600, turns = 2) => el.animate([{ transform: `rotate(${-360 * turns}deg)` }, { transform: 'rotate(0deg)' }],
+    { duration: ms, easing: 'cubic-bezier(.16,1,.3,1)' });
+
+  // Drawn from data.js, which scripts/site_grid.py writes from the two clips.
+  if (window.IR) {
+    $('#emb').innerHTML = ['c0', 'c2', 'c4'].map((t, k) => `<img src="img/f/${t}.jpg" alt=""><img class="flip" src="img/f/${t}.jpg" alt=""><div class="bars">${
+      IR.emb[k * 2].map(v => `<i style="height:${Math.min(100, Math.abs(v) * 100).toFixed(0)}%"></i>`).join('')}</div>`).join('');
+    $('#sim').innerHTML = IR.grid.map((row, r) => row.map((v, c) =>
+      `<i${r === c ? ' class="d"' : ''} style="opacity:${Math.max(.04, (v - .35) / .5).toFixed(2)}"></i>`).join('')).join('');
+  }
+  const cells = $$('#sim i');
+
+  // Steps: the stage shows the step whose text is at the middle of the screen.
+  const steps = $$('.step'), vizzes = $$('.viz');
+  let cur = -1;
+  function show(i) {
+    if (i === cur) return; cur = i;
+    steps.forEach((s, k) => s.classList.toggle('on', k === i));
+    vizzes.forEach((v, k) => v.classList.toggle('on', k === i));
+    $('#count').textContent = `0${i + 1} / 0${steps.length}`;
+    $('#prog').style.transform = `scaleX(${(i + 1) / steps.length})`;
+    if (!motion) return;
+    if (i === 1) gsap.fromTo('#emb .bars i', { scaleY: 0 }, { scaleY: 1, duration: .7, ease: 'expo.out', stagger: .003 });
+    if (i === 2) {
+      gsap.fromTo(cells, { scale: 0 }, { scale: 1, duration: .5, ease: 'expo.out', delay: .25, stagger: { each: .006, grid: [18, 18], from: 'start' } });
+      gsap.fromTo('#sim i.d', { outlineColor: 'rgba(168,81,92,0)' }, { outlineColor: 'rgba(168,81,92,1)', duration: .3, stagger: .04, delay: 1.05 });
+    }
+  }
+  show(0);
+
+  // Phone: each step carries its own picture; no sticky stage.
+  const phone = matchMedia('(max-width:900px)').matches;
+  if (phone) {
+    $('.how-grid').classList.add('inline');
+    steps.forEach((s, i) => s.appendChild(vizzes[i]));
+    $('.how-grid').appendChild($('.credit'));
+  }
+
+  // The rewind: only real dates are ever readable. The date rolls (blurred) from 2026-10-09 to 2017-09-19; the rule tracks it.
+  const ruleEl = $('#rule');
+
+  if (!motion) {
+    const io = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && show(+e.target.dataset.i)), { rootMargin: '-45% 0px -45% 0px' });
+    steps.forEach(s => io.observe(s));
+    return;
+  }
+
+  gsap.registerPlugin(ScrollTrigger);
+  const lenis = new Lenis({ lerp: .09 });
+  lenis.on('scroll', ScrollTrigger.update);
+  gsap.ticker.add(t => lenis.raf(t * 1000));
+  gsap.ticker.lagSmoothing(0);
+  $$('a[href^="#"]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault(); const h = a.getAttribute('href'); lenis.scrollTo(h === '#top' ? 0 : h, { duration: 1.4 });
+  }));
+
+  // Load, under a second: the reel turns, the curtain lifts.
+  lenis.stop();
+  const done = () => { $('.loader')?.remove(); lenis.start(); };
+  const qs = $$('.q');
+  gsap.set('.q .ln > span', { yPercent: 140 });
+  gsap.timeline({ defaults: { ease: 'expo.out' }, onComplete: done })
+    .call(() => spin($('.ld-reel'), 900, 1), null, 0)
+    .from('.loader .word span', { yPercent: 110, duration: .5 }, .05)
+    .to('.loader', { clipPath: 'inset(0 0 100% 0)', duration: .4, ease: 'expo.inOut' }, .55)
+    .call(() => spin($('.hd-reel'), 1200, 1), null, .7)
+    .from('.hero .reveal', { autoAlpha: 0, y: 14, duration: .9, stagger: .07 }, .8);
+  setTimeout(done, 3000);
+
+  // The hook: questions people ask under viral clips, about 2 s each, ending on the real one.
+  const hook = gsap.timeline({ delay: .7 });
+  qs.forEach((q, k) => {
+    const lines = q.querySelectorAll('.ln > span');
+    hook.to(lines, { yPercent: 0, duration: .75, ease: 'expo.out', stagger: .07 });
+    if (k < qs.length - 1) hook.to(lines, { yPercent: -140, duration: .45, ease: 'power3.in', stagger: .05 }, '+=1.15');
+  });
+
+  ruleEl.style.setProperty('--p', 0);
+  const clock = { p: 0 };
+  const rule = () => ruleEl.style.setProperty('--p', clock.p);
+  gsap.set('.dwrap', { y: 0, yPercent: 0 });
+  if (!phone) {
+    // Rewind: pinned by CSS sticky, scrubbed by scroll.
+    gsap.set('.cap2', { autoAlpha: 0, y: 20 });
+    gsap.timeline({ scrollTrigger: { trigger: '.rewind', start: 'top top', end: 'bottom bottom', scrub: .6 } })
+      .from('.shot-a', { xPercent: -30, autoAlpha: 0, duration: .16, ease: 'power3.out' }, 0)
+      .to(clock, { p: 1, duration: .5, ease: 'power2.inOut', onUpdate: rule }, .2)
+      .to('.dwrap', { yPercent: -50, duration: .08, ease: 'power2.inOut' }, .42)
+      .to('.dwrap', { keyframes: { filter: ['blur(0px)', 'blur(14px)', 'blur(0px)'] }, duration: .08, ease: 'none' }, .42)
+      .from('.shot-b', { xPercent: 30, autoAlpha: 0, duration: .22, ease: 'power3.out' }, .42)
+      .to('.cap1', { autoAlpha: 0, y: -20, duration: .07 }, .5)
+      .to('.cap2', { autoAlpha: 1, y: 0, duration: .1 }, .57)
+      .to({}, { duration: .22 });
+  } else {
+    // Phone: the scene isn't pinned; the date rolls once when it comes into view.
+    ScrollTrigger.create({ trigger: '.rw-head', start: 'top 70%', once: true, onEnter: () => {
+      gsap.to(clock, { p: 1, duration: 1.2, ease: 'power2.inOut', onUpdate: rule });
+      gsap.to('.dwrap', { yPercent: -50, duration: .45, delay: .4, ease: 'power2.inOut' });
+      gsap.to('.dwrap', { keyframes: { filter: ['blur(0px)', 'blur(10px)', 'blur(0px)'] }, duration: .45, delay: .4, ease: 'none' });
+    } });
+  }
+
+  // The step that counts is the one whose text crosses this line.
+  const line = phone ? '70%' : '55%';
+  steps.forEach((s, i) => ScrollTrigger.create({ trigger: s, start: 'top ' + line, end: 'bottom ' + line, onToggle: self => self.isActive && show(i) }));
+
+  // Terminal: the command is there at once; the output prints line by line in place (its height is already reserved).
+  const term = $('#term'), [first, ...out] = term.innerHTML.split('\n');
+  term.innerHTML = first + '\n' + out.map(l => `<span class="ol">${l}</span>`).join('\n') + '<span class="caret"></span>';
+  gsap.set('#term .ol, #term .caret', { autoAlpha: 0 });
+  ScrollTrigger.create({ trigger: '.term', start: 'top 80%', once: true, onEnter: () => {
+    gsap.to('#term .ol', { autoAlpha: 1, duration: .01, stagger: .08, delay: .35 });
+    gsap.to('#term .caret', { autoAlpha: 1, duration: .01, delay: .35 + out.length * .08 });
+  } });
+
+  // The statement lights up word by word.
+  const big = $('#big');
+  big.innerHTML = big.textContent.split(' ').map(w => `<span class="w">${w}</span>`).join(' ');
+  gsap.fromTo('#big .w', { opacity: .14 }, { opacity: 1, stagger: .1, ease: 'none',
+    scrollTrigger: { trigger: '.say', start: 'top 70%', end: 'center 45%', scrub: true } });
+
+  const ft = $('.ft-reel'), turn = { r: -540 };
+  gsap.to(turn, { r: 0, ease: 'none', onUpdate: () => { ft.style.transform = `rotate(${turn.r}deg)`; },
+    scrollTrigger: { trigger: '.wordmark', start: 'top bottom', end: 'bottom bottom', scrub: 1 } });
+})();
+</script>
+</body>
+</html>

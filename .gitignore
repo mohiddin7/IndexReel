@@ -9,6 +9,8 @@
 !/scripts/
 !/tests/
 !/eval/
+!/site/
+!/.github/
 
 # Inside the allowed folders: caches and media stay on this iMac.
 **/__pycache__/
