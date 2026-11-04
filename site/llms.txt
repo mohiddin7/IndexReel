@@ -15,5 +15,6 @@
 - [IndexReel site](https://mohiddin7.github.io/IndexReel/): what it does, how it works, the Meta models it uses and how far to trust it
 - [Replies](https://mohiddin7.github.io/IndexReel/replies.html): every reply @askIndexReel has posted on X
 - [README on GitHub](https://github.com/mohiddin7/IndexReel): code, quickstart and every test result
+- [Video](https://mohiddin7.github.io/IndexReel/video.html): the 3-min demo with its chapters, and the post @askIndexReel made on X about the Panama clip
 - [Demo video (3 min)](https://youtu.be/pVG6McdjDR8)
 - [@askIndexReel on X](https://x.com/askIndexReel): the bot
