@@ -5,8 +5,9 @@
   indexreel bot allow <numeric X user id>
 
 Polls the account's mentions. An account on data/bot/allowlist.txt (numeric X user ids) is answered about the first
-video found from its mention up the reply chain (at most HOPS posts up). One Muse Spark call reads the mention and the
-caption of the post holding the video, both as quoted data: what is asked, whether the topic is declined, and the date
+video found from its mention up the reply chain (at most HOPS posts up); of a post with several videos, the first
+MAX_VIDEOS are traced in the post's order up to the first with a copy, and the reply says which one. One Muse Spark call
+reads the mention and the caption of the post holding the video, both as quoted data: what is asked, whether the topic is declined, and the date
 the caption claims. A bare tag or another question gets an offer; a yes to it in the same conversation, or a question
 about the video's origin, runs the check: the clip is fetched with `indexreel fetch` and traced from the clip alone
 (the caption's place only adds up to 2 search queries), with the caption's claimed date (or else the post's date) as the date to beat, after a check of the clip's middle
@@ -26,6 +27,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import time
 import urllib.error
 import urllib.parse
@@ -45,6 +47,7 @@ FIELDS = "created_at,author_id,conversation_id,referenced_tweets,attachments"
 PRICE = {"mention": 0.001, "post_read": 0.005, "reply": 0.010, "reply_url": 0.20}
 PAGE = 10  # mentions read per poll, so one poll costs at most PAGE * (mention + post_read)
 HOPS = 3  # posts walked up from the mention (replied_to, else quoted) to find a video
+MAX_VIDEOS = 4  # videos of one post that are checked, in post order; the rest are dropped
 CONFIG = {"interval_s": 60, "user_day": 3, "analyses_day": 25, "job_usd": 0.50, "read_usd": 0.02, "guard_usd": 0.02, "spark_day_usd": 5.0,
           "x_day_usd": 5.0, "access_day": 10, "access_every_s": 7 * 86400, "posts_per_window": [100, 900],
           "topic_guard": True}
@@ -52,8 +55,13 @@ BASIS = ("the claimed date", "this post's date")
 TEMPLATES = {
     "found": "Earliest matching upload I could confirm: posted {date} on {platform}, before {basis} ({claimed}). "
              "Source: {url} Frames side by side attached. Same footage, earlier date; what it shows is for you to judge.",
+    "found_nth": "Video {nth} of {of}. Earliest matching upload I could confirm: posted {date} on {platform}, before "
+                 "{basis} ({claimed}). Source: {url} Frames side by side attached. "
+                 "Same footage, earlier date; what it shows is for you to judge.",
     "not_found": "I found no upload of this video before {basis} ({claimed}) among {n} I checked. "
                  "That doesn't mean none exists.",
+    "not_found_many": "I checked {k} of this post's {of} videos and found no upload of them before {basis} ({claimed}) "
+                      "among {n} I checked. That doesn't mean none exists.",
     "no_video": "I couldn't find a video in this post.",
     "topic": "IndexReel doesn't analyse this topic.",
     "access": "IndexReel runs on a small budget, so it only answers accounts on its access list, with daily limits to "
@@ -128,6 +136,11 @@ def render(kind, **fields):
         raise ValueError("unknown basis")
     if "n" in f and not (isinstance(f["n"], int) and 0 <= f["n"] < 1000):
         raise ValueError("n is not a count")
+    for k in ("nth", "of", "k"):
+        if k in f and not (type(f[k]) is int and 1 <= f[k] <= MAX_VIDEOS):
+            raise ValueError(f"{k} is not a video count")
+    if f.get("nth", 0) > f.get("of", MAX_VIDEOS) or f.get("k", 0) > f.get("of", MAX_VIDEOS):
+        raise ValueError("more videos than the post has")
     if "email" in f and not EMAIL.fullmatch(str(f["email"])):
         raise ValueError("not an email address")
     url = f.pop("url", None)
@@ -263,17 +276,37 @@ class FileClient:
         raise RuntimeError("a saved mentions file cannot post")
 
 
+def video_ids(post):
+    """The media ids of the post's videos and GIFs in the post's own order (X media key prefixes 7, 13 and 16)."""
+    keys = (post.get("attachments") or {}).get("media_keys") or []
+    return [k.split("_", 1)[1] for k in keys if k.split("_", 1)[0] in ("7", "13", "16") and "_" in k]
+
+
+def media_id(clip):
+    """The X media id in a fetched clip's name (twitter_<media id>.mp4), else None."""
+    return clip.stem.removeprefix("twitter_") if clip.stem.startswith("twitter_") else None
+
+
 def fetch_clip(post_id, work):
-    """The post's video through `indexreel fetch`, or None."""
+    """The post's videos through `indexreel fetch`, up to MAX_VIDEOS in media-id order (handle reorders them by the
+    post's media keys), each with its source sidecar alone in clips/<i>/ so that
+    `indexreel match` on its folder sees one clip; [] when there is none."""
     if not str(post_id).isdigit():
-        return None
+        return []
     out = Path(work) / "clips"
+    shutil.rmtree(out, ignore_errors=True)  # a rerun fetches again: fetch would skip a post whose clips were moved
     fetch.fetch([f"https://x.com/i/status/{post_id}"], out)
     vids = sorted(p for p in out.iterdir() if p.suffix.lower() in cli.VIDEO) if out.exists() else []
-    for extra in vids[1:]:  # limit: the first video of a post only; posts with several videos are not handled yet
+    for extra in vids[MAX_VIDEOS:]:  # limit: videos beyond MAX_VIDEOS are dropped
         for f in out.glob(extra.stem + ".*"):
             f.unlink()
-    return vids[0] if vids else None
+    clips = []
+    for i, v in enumerate(vids[:MAX_VIDEOS], 1):
+        (out / str(i)).mkdir()
+        for f in out.glob(v.stem + ".*"):  # the source sidecar goes with its video
+            f.rename(out / str(i) / f.name)
+        clips.append(out / str(i) / v.name)
+    return clips
 
 
 def strict(ans):
@@ -474,7 +507,7 @@ class Bot:
         if q["topic_blocked"] and cfg["topic_guard"]:
             return self.send(mid, render("topic"))
         if q["intent"] in ("none", "other") or (q["intent"] == "yes" and not pend):
-            self.state["pending"][conv] = {"user": uid, "post": {k: post.get(k) for k in ("id", "text", "created_at")}}
+            self.state["pending"][conv] = {"user": uid, "post": {k: post.get(k) for k in ("id", "text", "created_at", "attachments")}}
             return self.send(mid, render("ask_other" if q["intent"] == "other" else "ask"))
         self.state["pending"].pop(conv, None)
         why = ("this user's daily cap" if day["users"].get(uid, 0) >= cfg["user_day"] else
@@ -489,14 +522,17 @@ class Bot:
         day["analyses"] += 1
         self.save()
         work = self.root / "jobs" / mid
-        clip = None
+        clips = []
         try:
-            clip = self.find(post["id"], work)
+            clips = self.find(post["id"], work)
         except Exception as e:
             self.say(f"bot: {mid} fetch failed: {type(e).__name__}")
-        if clip is None:
+        if not clips:
             return self.send(mid, render("no_video"))
-        if cfg["topic_guard"]:
+        order = video_ids(post)
+        clips = sorted(clips, key=lambda c: order.index(media_id(c)) if media_id(c) in order else len(order))
+        of = max(len(order), len(clips))  # a video that failed to fetch still counts as one of the post's
+        for clip in clips if cfg["topic_guard"] else []:  # every clip, before any trace
             try:
                 blocked, cost = self.guard(post.get("text") or "", clip)
             except Exception as e:  # fail closed
@@ -507,7 +543,7 @@ class Bot:
                 return self.send(mid, render("topic"))
         if self.speech and not q["claimed_place"]:  # the caption names no place: a place the video's speech names may
             try:
-                said = self.speech(clip)
+                said = self.speech(clips[0])
                 if said:
                     day["spark_usd"] += said[1]
                     q2, cost = self.reader(t.get("text") or "", post.get("text") or "", speech=said[0])
@@ -520,21 +556,37 @@ class Bot:
             except Exception as e:  # the speech is an extra hint: go on without it
                 self.say(f"bot: {mid} speech hint failed ({type(e).__name__}), going on without it")
         claimed, basis = claimed_date(q["claimed_date"], str(post.get("created_at") or "")[:10])
-        try:
-            res = self.tracer(clip, claimed, work, cfg["job_usd"], place=q["claimed_place"])
-        except Exception as e:
-            day["spark_usd"] += cfg["job_usd"]  # spend unknown: count the whole job cap
-            self.say(f"bot: {mid} trace failed: {type(e).__name__}: {str(e)[:200]}")
-            return self.mark(mid, "error")
-        day["spark_usd"] += res["spent"]
+        k = n = 0  # clips traced, copies' candidates checked
+        for i, clip in enumerate(clips, 1):  # in post order, up to the first with a copy
+            if i > 1 and (day["spark_usd"] + cfg["job_usd"] > cfg["spark_day_usd"]
+                          or self.searches_left() < searches_needed(q["claimed_place"])):
+                self.say(f"bot: {mid} stopped after {k} of {len(clips)} videos: the Spark spend cap or trace's YouTube search counter")
+                break
+            try:
+                res = self.tracer(clip, claimed, work / f"v{i}", cfg["job_usd"], place=q["claimed_place"])
+            except Exception as e:
+                day["spark_usd"] += cfg["job_usd"]  # spend unknown: count the whole job cap
+                self.say(f"bot: {mid} trace failed: {type(e).__name__}: {str(e)[:200]}")
+                if i == 1:
+                    return self.mark(mid, "error")
+                break  # answer from the videos already checked
+            day["spark_usd"] += res["spent"]
+            k, n, nth = i, n + res["checked"], (order.index(media_id(clip)) + 1 if media_id(clip) in order else i)
+            if res["shown"]:
+                break
         s = res["shown"]
         if not s:
-            return self.send(mid, render("not_found", basis=basis, claimed=claimed, n=res["checked"]))
+            if of == 1:
+                return self.send(mid, render("not_found", basis=basis, claimed=claimed, n=n))
+            return self.send(mid, render("not_found_many", k=k, of=of, basis=basis, claimed=claimed, n=n))
         if not res.get("card"):
             self.say(f"bot: {mid} found a copy but has no evidence card; not replying")
             return self.mark(mid, "error")
-        self.send(mid, render("found", date=s["posted_at"][:10], platform=s["platform"], basis=basis, claimed=claimed,
-                              url=s["url"]), res["card"], hold=not post_found(res))
+        found = dict(date=s["posted_at"][:10], platform=s["platform"], basis=basis, claimed=claimed, url=s["url"])
+        if of > 1:
+            self.send(mid, render("found_nth", nth=nth, of=of, **found), res["card"], hold=not post_found(res))
+        else:
+            self.send(mid, render("found", **found), res["card"], hold=not post_found(res))
 
     def video_post(self, t, inc):
         """The first post with a video from the mention up its replied_to (else quoted) references, at most HOPS
