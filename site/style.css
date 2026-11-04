@@ -194,6 +194,13 @@ code{font:500 .875em/1 var(--sans);background:#f0f0f0;padding:.15em .4em;border-
 .res p{font-size:.9375rem;color:#333}
 .res .n{margin-top:14px;font-size:.8125rem;color:var(--grey)}
 .after{padding:40px var(--gut) 0;font-size:1.0625rem}
+
+/* questions: the same text as the FAQPage JSON-LD in the head */
+.faq{padding:0 var(--gut)}
+.qa{display:grid;grid-template-columns:repeat(12,1fr);gap:12px 24px;padding:28px 0;border-top:1px solid var(--ink)}
+.qa:last-child{border-bottom:1px solid var(--ink)}
+.qa h3{grid-column:1/6;font:400 clamp(1.375rem,2vw,1.875rem)/1.1 var(--serif);letter-spacing:-.015em}
+.qa p{grid-column:7/13;font-size:1.0625rem;max-width:60ch}
 .miss blockquote{margin:0 0 14px;padding:18px 20px;border-radius:14px;background:#f2f2f2;font:400 1.0625rem/1.45 var(--sans)}
 .miss blockquote i{font-style:normal;color:var(--grey)}
 
@@ -249,6 +256,7 @@ code{font:500 .875em/1 var(--sans);background:#f0f0f0;padding:.15em .4em;border-
   .say .sub p{grid-column:1/-1}
   .models h3,.models .does,.models .did{grid-column:1/-1}
   .results{grid-template-columns:1fr}
+  .qa h3,.qa p{grid-column:1/-1}
   .rw-cta{grid-column:1/-1;grid-row:5}
   .top nav a.hide-s{display:none}
   .close .ask p,.close .ask .cta{grid-column:1/-1;justify-content:flex-start}

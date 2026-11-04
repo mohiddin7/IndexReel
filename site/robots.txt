@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mohiddin7.github.io/IndexReel/sitemap.xml

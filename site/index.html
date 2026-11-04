@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IndexReel</title>
-<meta name="description" content="Tag @askIndexReel under a video post on X. It looks for earlier uploads of the same footage and replies with the date and the frames side by side.">
+<title>IndexReel: is this video really new?</title>
+<meta name="description" content="Is this video really new? IndexReel is an open-source X bot that finds earlier uploads of a video and shows the frames side by side.">
+<link rel="canonical" href="https://mohiddin7.github.io/IndexReel/">
 <link rel="icon" href="img/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="img/favicon-180.png">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="IndexReel">
 <meta property="og:title" content="IndexReel: is this video really new?">
 <meta property="og:description" content="Tag @askIndexReel under a video post on X. It looks for earlier uploads of the same footage and replies with the date and the frames side by side.">
 <meta property="og:image" content="https://mohiddin7.github.io/IndexReel/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="IndexReel. Is this video really new? Earlier uploads of the same footage, with the frames side by side.">
 <meta property="og:url" content="https://mohiddin7.github.io/IndexReel/">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="fonts/newsreader-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -20,6 +25,8 @@ document.documentElement.classList.add('js');
 if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');
 </script>
 <link rel="stylesheet" href="style.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"IndexReel","url":"https://mohiddin7.github.io/IndexReel/","description":"Is this video really new? IndexReel is an open-source X bot that finds earlier uploads of a video and shows the frames side by side.","applicationCategory":"UtilitiesApplication","softwareRequirements":"Python 3.12","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://www.apache.org/licenses/LICENSE-2.0","codeRepository":"https://github.com/mohiddin7/IndexReel","sameAs":["https://github.com/mohiddin7/IndexReel","https://x.com/askIndexReel"],"image":"https://mohiddin7.github.io/IndexReel/img/og.png","author":{"@type":"Person","name":"Mohiddin Shaik","sameAs":["https://github.com/mohiddin7"]}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What does IndexReel do?","acceptedAnswer":{"@type":"Answer","text":"It looks for earlier uploads of the footage in a video post and shows the matching frames side by side, so you can see for yourself whether the same footage was posted before. The open-source tool can also count how many separate recordings are behind a set of video posts."}},{"@type":"Question","name":"How do I use it on X?","acceptedAnswer":{"@type":"Answer","text":"Tag @askIndexReel under a post with a video and ask whether it is new. On a post with several videos it checks each in turn, up to 4, until one has an earlier copy. It replies with the earliest matching upload it could confirm, with its link and the frames side by side, or says it found none."}},{"@type":"Question","name":"Does it tell me whether a post is right?","acceptedAnswer":{"@type":"Answer","text":"No. It doesn't rule on the post. It shows where the same footage appeared before, and when. An earlier upload doesn't settle what a post claims, and finding none doesn't mean the video is new."}},{"@type":"Question","name":"Which Meta models does it use?","acceptedAnswer":{"@type":"Answer","text":"SSCD, Meta AI's copy-detection model, turns every frame and its mirror image into a vector, and all matching is built on it. Muse Spark checks uncertain and merged pairs and writes the searches for earlier uploads from the frames. On X, when a caption names no place, Muse Voice Transcribe lets a place said in the video add searches."}},{"@type":"Question","name":"Where does it search for earlier uploads?","acceptedAnswer":{"@type":"Answer","text":"It searches YouTube directly. Other platforms are reached only through one general web search, with no search aimed at Facebook or Instagram. In one test round (v3), 3 of its 4 misses were Facebook or Instagram posts. Facebook, Instagram, TikTok and X can be searched directly once those platforms give API access."}},{"@type":"Question","name":"Is it open source?","acceptedAnswer":{"@type":"Answer","text":"Yes. The code is on GitHub under the Apache License 2.0 and runs on Python 3.12. Matching runs on a laptop CPU at no cost; the Muse Spark checks and the search call paid APIs and take a spending cap."}}]}</script>
 </head>
 <body>
 
@@ -104,10 +111,10 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentEl
       <div class="box">
         <div class="viz on" data-v="0">
           <div class="lbl"><span>The edited copy, one frame a second</span></div>
-          <div class="strip"><img src="img/f/c0.jpg" alt=""><img src="img/f/c1.jpg" alt=""><img src="img/f/c2.jpg" alt=""><img src="img/f/c3.jpg" alt=""><img src="img/f/c4.jpg" alt=""><img src="img/f/c5.jpg" alt=""></div>
+          <div class="strip"><img src="img/f/c0.jpg" alt="Edited copy, 2 s"><img src="img/f/c1.jpg" alt="Edited copy, 3 s"><img src="img/f/c2.jpg" alt="Edited copy, 4 s"><img src="img/f/c3.jpg" alt="Edited copy, 5 s"><img src="img/f/c4.jpg" alt="Edited copy, 6 s"><img src="img/f/c5.jpg" alt="Edited copy, 7 s"></div>
           <div class="ticks"><span>2 s</span><span>3 s</span><span>4 s</span><span>5 s</span><span>6 s</span><span>7 s</span></div>
           <div class="lbl" style="margin-top:18px"><span>The USGS original</span></div>
-          <div class="strip"><img src="img/f/o0.jpg" alt=""><img src="img/f/o1.jpg" alt=""><img src="img/f/o2.jpg" alt=""><img src="img/f/o3.jpg" alt=""><img src="img/f/o4.jpg" alt=""><img src="img/f/o5.jpg" alt=""></div>
+          <div class="strip"><img src="img/f/o0.jpg" alt="USGS original, 2 s"><img src="img/f/o1.jpg" alt="USGS original, 3 s"><img src="img/f/o2.jpg" alt="USGS original, 4 s"><img src="img/f/o3.jpg" alt="USGS original, 5 s"><img src="img/f/o4.jpg" alt="USGS original, 6 s"><img src="img/f/o5.jpg" alt="USGS original, 7 s"></div>
           <div class="ticks"><span>2 s</span><span>3 s</span><span>4 s</span><span>5 s</span><span>6 s</span><span>7 s</span></div>
         </div>
         <div class="viz" data-v="1">
@@ -123,7 +130,7 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentEl
           <p class="legend">This pair:<b>0.79</b>aligned score at offset 0 s, over all 18 seconds. Merged starts at 0.55.</p>
         </div>
         <div class="viz" data-v="3">
-          <div class="check"><img src="img/f/c3.jpg" alt=""><img src="img/f/o3.jpg" alt=""></div>
+          <div class="check"><img src="img/f/c3.jpg" alt="Edited copy, 5 s"><img src="img/f/o3.jpg" alt="USGS original, 5 s"></div>
           <ul class="qs">
             <li><span>Muse Spark: same recording?</span><span>180 px</span></li>
             <li><span>Re-asked before it is shown, in both orders</span><span>360 px</span></li>
@@ -215,6 +222,20 @@ copy_cropped_mirrored~usgs_original  0.804   0.790     0s     0-  18 s     0-  1
   <p class="after"><a href="https://github.com/mohiddin7/indexreel#results">All results, including every failed test</a></p>
 </section>
 
+<section id="faq" aria-labelledby="faq-h">
+  <div class="head">
+    <h2 id="faq-h">Questions</h2>
+  </div>
+  <div class="faq">
+    <div class="qa"><h3>What does IndexReel do?</h3><p>It looks for earlier uploads of the footage in a video post and shows the matching frames side by side, so you can see for yourself whether the same footage was posted before. The open-source tool can also count how many separate recordings are behind a set of video posts.</p></div>
+    <div class="qa"><h3>How do I use it on X?</h3><p>Tag @askIndexReel under a post with a video and ask whether it is new. On a post with several videos it checks each in turn, up to 4, until one has an earlier copy. It replies with the earliest matching upload it could confirm, with its link and the frames side by side, or says it found none.</p></div>
+    <div class="qa"><h3>Does it tell me whether a post is right?</h3><p>No. It doesn&#x27;t rule on the post. It shows where the same footage appeared before, and when. An earlier upload doesn&#x27;t settle what a post claims, and finding none doesn&#x27;t mean the video is new.</p></div>
+    <div class="qa"><h3>Which Meta models does it use?</h3><p>SSCD, Meta AI&#x27;s copy-detection model, turns every frame and its mirror image into a vector, and all matching is built on it. Muse Spark checks uncertain and merged pairs and writes the searches for earlier uploads from the frames. On X, when a caption names no place, Muse Voice Transcribe lets a place said in the video add searches.</p></div>
+    <div class="qa"><h3>Where does it search for earlier uploads?</h3><p>It searches YouTube directly. Other platforms are reached only through one general web search, with no search aimed at Facebook or Instagram. In one test round (v3), 3 of its 4 misses were Facebook or Instagram posts. Facebook, Instagram, TikTok and X can be searched directly once those platforms give API access.</p></div>
+    <div class="qa"><h3>Is it open source?</h3><p>Yes. The code is on GitHub under the Apache License 2.0 and runs on Python 3.12. Matching runs on a laptop CPU at no cost; the Muse Spark checks and the search call paid APIs and take a spending cap.</p></div>
+  </div>
+</section>
+
 <section class="close ink" aria-label="Try it">
   <div class="ask">
     <p>Seen a video that looks new?<br>Tag @askIndexReel<br>under the post.</p>
@@ -259,7 +280,7 @@ copy_cropped_mirrored~usgs_original  0.804   0.790     0s     0-  18 s     0-  1
 
   // Drawn from data.js, which scripts/site_grid.py writes from the two clips.
   if (window.IR) {
-    $('#emb').innerHTML = ['c0', 'c2', 'c4'].map((t, k) => `<img src="img/f/${t}.jpg" alt=""><img class="flip" src="img/f/${t}.jpg" alt=""><div class="bars">${
+    $('#emb').innerHTML = ['c0', 'c2', 'c4'].map((t, k) => `<img src="img/f/${t}.jpg" alt="Edited copy, ${k * 2 + 2} s"><img class="flip" src="img/f/${t}.jpg" alt="Edited copy, ${k * 2 + 2} s, mirrored"><div class="bars">${
       IR.emb[k * 2].map(v => `<i style="height:${Math.min(100, Math.abs(v) * 100).toFixed(0)}%"></i>`).join('')}</div>`).join('');
     $('#sim').innerHTML = IR.grid.map((row, r) => row.map((v, c) =>
       `<i${r === c ? ' class="d"' : ''} style="opacity:${Math.max(.04, (v - .35) / .5).toFixed(2)}"></i>`).join('')).join('');

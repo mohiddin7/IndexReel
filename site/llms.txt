@@ -1,0 +1,19 @@
+# IndexReel
+
+> IndexReel is an open-source X bot and command-line tool that finds earlier uploads of a video and shows the matching frames side by side. It doesn't rule on a post: it shows where the same footage appeared before, and when. Built by Mohiddin Shaik.
+
+- Matching: Meta's SSCD copy-detection model turns one frame per second, and its mirror image, into a vector; the best constant time offset between two clips gives a score and the matching stretch.
+- Checking: Muse Spark re-checks every merged and uncertain pair, so nothing is decided on SSCD's score alone.
+- On X: tag @askIndexReel under a post with a video and ask whether it is new. On a post with several videos it checks each in turn, up to 4, until one has an earlier copy, and replies with the earliest matching upload it could confirm, with its link and the frames side by side, or says it found none.
+- Meta models in the product: SSCD, Muse Spark and Muse Voice Transcribe. In tests only: Muse Spark Open. Compared and not used: PDQ, vPDQ, TMK+PDQF, SAM 3.1 and Muse Wonder.
+- Search: it searches YouTube directly and runs one general web search, with no search aimed at Facebook or Instagram.
+- Limits: it misses many earlier uploads, often because they sit on Facebook or Instagram, which its searches don't reach; Facebook, Instagram, TikTok and X can be searched directly once those platforms give API access. An earlier upload doesn't settle what a post claims, and finding none doesn't mean the video is new.
+- Code: Apache License 2.0, Python 3.12. Matching runs on a laptop CPU at no cost; the Muse Spark checks and the search call paid APIs.
+
+## Links
+
+- [IndexReel site](https://mohiddin7.github.io/IndexReel/): what it does, how it works, the Meta models it uses and how far to trust it
+- [Replies](https://mohiddin7.github.io/IndexReel/replies.html): every reply @askIndexReel has posted on X
+- [README on GitHub](https://github.com/mohiddin7/IndexReel): code, quickstart and every test result
+- [Demo video (3 min)](https://youtu.be/pVG6McdjDR8)
+- [@askIndexReel on X](https://x.com/askIndexReel): the bot
