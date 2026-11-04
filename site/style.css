@@ -115,7 +115,7 @@ ol,ul{padding:0;list-style:none}
 .step p{font-size:1rem;max-width:44ch;color:#333}
 .step .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
 code{font:500 .875em/1 var(--sans);background:#f0f0f0;padding:.15em .4em;border-radius:4px}
-.stage{grid-column:6/13;position:sticky;top:0;height:100svh;display:flex;flex-direction:column;justify-content:center;padding:84px 0 28px}
+.stage{grid-column:6/13;position:sticky;top:0;height:100svh;display:flex;flex-direction:column;justify-content:center;padding:116px 0 28px}
 .stage-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;font:400 clamp(1.25rem,1.6vw,1.625rem)/1 var(--serif)}
 .stage-top .count{font:500 .8125rem/1 var(--sans);color:var(--grey);font-variant-numeric:tabular-nums}
 .prog{height:2px;background:#e6e6e6;margin-bottom:28px}
@@ -157,7 +157,7 @@ code{font:500 .875em/1 var(--sans);background:#f0f0f0;padding:.15em .4em;border-
 .credit{margin-top:14px;font-size:.75rem;color:var(--grey)}
 
 /* run it: the real command and its real output */
-.run{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;padding:0 var(--gut)}
+.run{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;padding:0 var(--gut) clamp(120px,14vw,200px)}
 .term{grid-column:1/9;background:var(--ink);color:#e6e6e6;border-radius:14px;padding:28px 28px 32px;overflow-x:auto}
 .term pre .ol{visibility:visible}
 .term pre{font:400 clamp(.75rem,.95vw,.9375rem)/1.7 ui-monospace,"SF Mono",Menlo,monospace}
@@ -201,8 +201,8 @@ code{font:500 .875em/1 var(--sans);background:#f0f0f0;padding:.15em .4em;border-
 /* close */
 .close{margin-top:clamp(120px,14vw,200px);padding:clamp(80px,10vw,140px) var(--gut) 32px}
 .close .ask{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;align-items:end}
-.close .ask p{grid-column:1/7;font:300 clamp(2rem,4.4vw,4.5rem)/1.02 var(--serif);letter-spacing:-.025em}
-.close .ask .cta{grid-column:8/13;display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
+.close .ask p{grid-column:1/9;font:300 clamp(2rem,4.4vw,4.5rem)/1.02 var(--serif);letter-spacing:-.025em;text-wrap:balance}
+.close .ask .cta{grid-column:9/13;display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
 .wordmark{display:flex;align-items:center;gap:2.4vw;margin-top:clamp(96px,12vw,180px);font:300 clamp(4rem,17.5vw,22rem)/.8 var(--serif);letter-spacing:-.05em}
 .wordmark svg{width:13vw;height:13vw;flex:none}
 .foot{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;margin-top:48px;padding-top:24px;border-top:1px solid #333;font-size:.875rem}
