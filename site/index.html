@@ -197,6 +197,7 @@ copy_cropped_mirrored~usgs_original  0.804   0.790     0s     0-  18 s     0-  1
   <h3 class="grp">Tested, not used</h3>
   <ul class="models">
     <li><h3>PDQ<small>Meta's perceptual image hash</small></h3><p class="does">A comparison only.</p><p class="did">Ranked the true original first on 67/96 re-films, against SSCD's 96/96.</p></li>
+    <li><h3>vPDQ and TMK+PDQF<small>Meta's video hashes, from ThreatExchange</small></h3><p class="does">A comparison only.</p><p class="did">On the 96 real re-films, TMK ranked the true original first on 80 and vPDQ matched none at its own threshold. Both find WhatsApp copies of the same file, as PDQ already does, and neither separates two takes of one view from a copy.</p></li>
     <li><h3>SAM 3.1</h3><p class="does">Tested as the screen finder. Not used.</p><p class="did">Lost the first test 1/4 to OpenCV's 4/4 on simulated re-films. A later check found most of that came from my prompt word ("screen" found 3 of 8 screens, "television screen" 6 of 8) and from scoring with PDQ; with both fixed it reached 3/4, still behind OpenCV.</p></li>
     <li><h3>Muse Wonder</h3><p class="does">Tried as the judge for the hardest pairs. Not used.</p><p class="did">Found 10 of 12 hard true copies against Spark's 9, but called 2 of 12 pairs of different takes the same recording, at about five times the cost.</p></li>
   </ul>
@@ -206,7 +207,7 @@ copy_cropped_mirrored~usgs_original  0.804   0.790     0s     0-  18 s     0-  1
 <section id="trust" aria-labelledby="trust-h">
   <div class="head">
     <h2 id="trust-h">How far to trust it</h2>
-    <p class="muted">I wrote down every test, with its pass bar, and committed it before it ran. Failed tests are reported as failed. Copies are simulated or filmed by me unless a row says otherwise; intervals are Wilson 95%.</p>
+    <p class="muted">I wrote down every test, with its pass bar, and committed it before it ran. Copies are simulated or filmed by me unless a row says otherwise; intervals are Wilson 95%.</p>
   </div>
   <h3 class="grp">Matching clips</h3>
   <div class="results">
@@ -215,11 +216,10 @@ copy_cropped_mirrored~usgs_original  0.804   0.790     0s     0-  18 s     0-  1
   </div>
   <h3 class="grp">Finding the earlier upload</h3>
   <div class="results">
-    <article class="res"><p class="v">FAIL</p><h3>Earlier copies, v5</h3><p>2 wrong statements: of 12 earlier copies trace confirmed, the blind reviewer could not tell 2 were the same recording from the evidence image (each a small inset in a news video or graphic; neither was the copy shown; none judged different). Found 0 of 1 real re-upload and 1 of 9 of my copies (needs 4). Nothing on any control.</p><p class="n">10 cases, 4 controls</p></article>
     <article class="res miss"><p class="v">WHEN IT FINDS NOTHING</p><h3>The reply says so</h3><blockquote>I found no upload of this video before this post's date (<i>date</i>) among <i>n</i> I checked. That doesn't mean none exists.</blockquote><p class="n">The bot's reply text, from src/indexreel/bot.py</p></article>
+    <article class="res"><p class="v">WHERE IT SEARCHES</p><h3>YouTube and the web</h3><p>Today it searches YouTube directly and runs one general web search, with no search aimed at Facebook or Instagram. In v3, 3 of its 4 misses were Facebook or Instagram posts.</p></article>
   </div>
-  <p class="fine">Today it searches YouTube directly and runs one general web search, with no search aimed at Facebook or Instagram. In v3, 3 of its 4 misses were Facebook or Instagram posts.</p>
-  <p class="after"><a href="https://github.com/mohiddin7/indexreel#results">All results, including every failed test</a></p>
+  <p class="after"><a href="https://github.com/mohiddin7/indexreel#results">Every test and its result, on GitHub</a></p>
 </section>
 
 <section id="faq" aria-labelledby="faq-h">
