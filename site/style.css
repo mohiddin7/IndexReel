@@ -66,7 +66,7 @@ ol,ul{padding:0;list-style:none}
 .hero-sub a{font:500 .9375rem/1 var(--sans)}
 .hero-foot{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;align-items:end;padding-top:40px;border-top:1px solid var(--ink)}
 .hero-foot .lede{grid-column:1/6;font-size:clamp(1.0625rem,1.35vw,1.3rem);line-height:1.45}
-.hero-foot .cta{grid-column:8/13;display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
+.hero-foot .cta{grid-column:6/13;display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
 
 /* section heads */
 .head{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;padding:clamp(96px,14vw,200px) var(--gut) clamp(40px,5vw,72px)}
