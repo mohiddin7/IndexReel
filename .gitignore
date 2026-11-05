@@ -18,7 +18,6 @@
 *.pkl
 *.err
 *.mp4
-!/site/img/video/*.mp4
 *.mov
 *.webm
 *.mp3

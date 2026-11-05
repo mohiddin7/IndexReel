@@ -305,24 +305,21 @@ code{font:500 .875em/1 var(--sans);background:#f0f0f0;padding:.15em .4em;border-
 .chapters{grid-column:8/13;list-style:none;padding:0;margin:0;border-top:1px solid var(--ink)}
 .chapters li{display:flex;gap:20px;padding:12px 0;border-bottom:1px solid #ddd;font-size:1rem}
 .chapters span{min-width:3.2em;font:500 .9375rem/1.5 var(--sans);color:var(--grey);font-variant-numeric:tabular-nums}
-.xpost{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;padding:0 var(--gut);align-items:start}
-.xpost figure{margin:0}
-.xpost figcaption{margin-top:10px;font-size:.8125rem;color:var(--grey)}
-.xp-video{grid-column:1/5}
-.xp-video video{display:block;width:100%;height:auto;border-radius:14px;background:var(--ink)}
-.xp-text{grid-column:5/9}
+.xpost{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;padding:0 var(--gut);align-items:center}
+.xp-card{grid-column:2/6;display:block;border-radius:14px;overflow:hidden;border:1px solid #e3e3e3;transition:transform .4s var(--expo),box-shadow .4s}
+.xp-card img{display:block;width:100%;height:auto}
+.xp-card:hover{transform:translateY(-4px);box-shadow:0 18px 40px rgba(0,0,0,.12)}
+.xp-card:focus-visible{outline:2px solid var(--rose);outline-offset:4px}
+.xp-text{grid-column:7/12}
 .xp-text blockquote{margin:0;padding:20px 22px;border-radius:14px;background:#f2f2f2;font:400 1.0625rem/1.5 var(--sans)}
 .xp-text blockquote p+p{margin-top:.8em}
 .xp-text .n{margin-top:10px}
-.xp-card{grid-column:9/13}
-.xp-card img{width:100%;border-radius:14px;border:1px solid #e3e3e3}
 @media (max-width:900px){
   .demo-text,.chapters{grid-column:1/-1}
   .facade .pbtn{width:56px;height:56px;margin:-28px 0 0 -28px}
   .facade .pbtn svg{width:24px;height:24px;margin-left:3px}
-  .xp-video,.xp-text,.xp-card{grid-column:1/-1}
-  .xp-text{order:-1}
-  .xp-video video{max-height:80svh;width:auto;max-width:100%}
+  .xp-text,.xp-card{grid-column:1/-1}
+  .xp-card{order:1}
 }
 @media (max-width:420px){.top nav a{padding:8px 10px}.top{padding-left:14px}}
 @media (max-width:380px){.top .brand .bw{display:none}}
